@@ -6,8 +6,8 @@ import datetime
 from pathlib import Path
 import argparse
 import shutil
-import textwrap
 import sys
+import fnmatch
 
 
 def get_metadata(project_path):
@@ -45,7 +45,8 @@ def get_metadata(project_path):
 
                 # Track largest files
                 largest_files.append((fp.relative_to(project_path), size))
-                largest_files = sorted(largest_files, key=lambda x: x[1], reverse=True)[:10]
+                largest_files = sorted(largest_files, key=lambda x: x[1],
+                                       reverse=True)[:10]
 
             except Exception as e:
                 continue
@@ -59,12 +60,12 @@ def get_metadata(project_path):
             "hostname": platform.node(),
             "username": getpass.getuser()
         }
-    except:
-        system_info = {"note": "System info collection failed"}
+    except Exception as e:
+        system_info = {"note": f"System info collection failed: {e}"}
 
     # Summarize file types
     top_file_types = sorted([(ext, count) for ext, count in file_types.items()],
-                        key=lambda x: x[1], reverse=True)[:10]
+                            key=lambda x: x[1], reverse=True)[:10]
 
     return {
         "file_count": file_count,
@@ -106,7 +107,7 @@ def get_file_tree(project_path, depth=2):
 
 
 def upload_files(files, destination, storage_provider="rclone",
-                progress_callback=None):
+                 progress_callback=None):
     """
     Generic file upload function supporting multiple cloud storage providers.
 
@@ -202,7 +203,8 @@ def file_tree_fallback(dir_path, max_depth=2, prefix=""):
     return "\n".join(output)
 
 
-def generate_readme(base_name, project_name, project_path, timestamp, meta, file_tree, sha256_hash=None, note=None):
+def generate_readme(base_name, project_name, project_path, timestamp, meta,
+                    file_tree, sha256_hash=None, note=None):
     """Generate a comprehensive README with enhanced metadata."""
 
     file_types_section = ""
@@ -349,7 +351,7 @@ def archive_project(project_path, archive_dir, note=None, remote_path=None,
         sha256_path = None
 
     # Generate and write README
-    print(f"🧾 Writing metadata...")
+    print("🧾 Writing metadata...")
     readme_contents = generate_readme(
         base_name, project_name, project_path, timestamp,
         meta, file_tree, sha256_hash, note

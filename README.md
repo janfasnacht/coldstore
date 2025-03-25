@@ -4,9 +4,9 @@ A robust command-line tool for archiving research project folders with comprehen
 
 ## Features
 
-- ✅ Create compressed `.tar.gz` archives with configurable compression levels
-- ✅ Generate SHA256 checksums for integrity verification
-- ✅ Create detailed README files with project metadata including:
+- Create compressed `.tar.gz` archives with configurable compression levels
+- Generate SHA256 checksums for integrity verification
+- Create detailed README files with project metadata including:
   - File and directory counts
   - Total size in human-readable format
   - Data date range (earliest/latest file)
@@ -14,9 +14,9 @@ A robust command-line tool for archiving research project folders with comprehen
   - Largest files list
   - Directory structure preview
   - System information (username, hostname, OS)
-- ✅ Cloud storage options (via rclone; more to come)
-- ✅ Pattern-based file exclusion
-- ✅ Optional deletion of original folder (with confirmation safeguards)
+- Cloud storage options (via rclone; more to come)
+- Pattern-based file exclusion
+- Optional deletion of original folder (with confirmation safeguards)
 
 ## Motivation
 
