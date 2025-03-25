@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "archive_project"
+version = "0.1.0"
+description = "Project archiving utility for long-term storage with metadata"
+authors = ["janfasnacht <jan.fasnacht@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+# Your script mostly uses standard library, add any external packages here
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+archive-project = "archive_project:main"
