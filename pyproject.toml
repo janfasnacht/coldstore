@@ -1,13 +1,13 @@
 [tool.poetry]
-name = "archive_project"
+name = "coldstore"
 version = "0.1.0"
-description = "Project archiving utility for long-term storage with metadata"
+description = "Cold storage archiving utility for long-term preservation with metadata"
 authors = ["janfasnacht <jan.fasnacht@gmail.com>"]
 readme = "README.md"
+packages = [{include = "archive_project"}]
 
 [tool.poetry.dependencies]
-python = "^3.8"
-# Your script mostly uses standard library, add any external packages here
+python = "^3.9"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
@@ -17,4 +17,4 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-archive-project = "archive_project:main"
+coldstore = "archive_project.cli.main:main"

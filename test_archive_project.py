@@ -6,9 +6,8 @@ from pathlib import Path
 import tarfile
 import sys
 
-# Import the script to test
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import archive_project
+# Import the module to test
+from archive_project import archive_project
 
 
 def test_basic_archive_functionality(preserve_output=False):
@@ -55,9 +54,9 @@ def test_basic_archive_functionality(preserve_output=False):
 
         # Run the archive function
         print(f"Creating archive from {project_dir} to {archive_dir}")
-        archive_path, sha256_path, readme_path = archive_project.archive_project(
-            project_dir,
-            archive_dir,
+        archive_path, sha256_path, readme_path = archive_project(
+            source_path=project_dir,
+            archive_dir=archive_dir,
             note="Test archive",
             do_archive=True,
             do_upload=False
@@ -86,8 +85,8 @@ def test_basic_archive_functionality(preserve_output=False):
         # Updated assertions to match the new README format
         assert "Test archive" in readme_content
         assert "test_project" in readme_content
-        assert "Project:" in readme_content  # Changed from "**Project**"
-        assert "Files:" in readme_content or "Total size:" in readme_content  # Changed from "**Files**" or "**Total size**"
+        assert "Source:" in readme_content  # Updated for new terminology
+        assert "Files:" in readme_content or "Total size:" in readme_content
 
         # Preserve output if requested
         if preserve_output and preserved_project_path and preserved_archive_path:
