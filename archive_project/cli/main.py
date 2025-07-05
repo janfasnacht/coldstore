@@ -1,76 +1,78 @@
 """Command-line interface for archive_project."""
 
-import argparse
 import os
 import sys
 from pathlib import Path
+from typing import List, Optional
+
+import click
 
 from ..core.archiver import archive_project
 
 
-def main():
-    """Main entry point for the CLI."""
-    parser = argparse.ArgumentParser(
-        description="Coldstore - Archive directories to cold storage with comprehensive metadata.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-
-    # Required arguments
-    parser.add_argument("source_path", help="Path to the source directory to archive")
-    parser.add_argument("archive_dir", help="Directory where the archive and metadata will be stored")
-
-    # Basic options
-    parser.add_argument("--note", help="Optional note or description for the archive", default=None)
-    parser.add_argument("--name", help="Custom name for the archive (default: source_name_timestamp)", default=None)
-    parser.add_argument("--no-archive", action="store_true", help="Skip creating the .tar.gz archive")
-    parser.add_argument("--delete-after-archive", action="store_true", help="Delete original directory after archiving")
-    parser.add_argument("--force", action="store_true", help="Skip confirmation prompts")
-
-    # Compression options
-    parser.add_argument("--compress-level", type=int, choices=range(1, 10), default=6,
-                        help="Compression level (1=fastest, 9=smallest)")
-    parser.add_argument("--exclude", action="append", default=[],
-                        help="Exclude patterns (can be used multiple times)")
-
-    # Upload options
-    upload_group = parser.add_argument_group("Upload Options")
-    upload_group.add_argument("--upload", action="store_true", help="Upload the files to remote storage")
-    upload_group.add_argument("--remote-path", help="Remote storage destination path", default=None)
-    upload_group.add_argument("--storage-provider", choices=["rclone", "aws", "gcp", "azure"],
-                              default="rclone", help="Storage provider to use")
-
-    # Parse and validate
-    args = parser.parse_args()
-
+@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.argument("source_path", type=click.Path(exists=True, path_type=Path))
+@click.argument("archive_dir", type=click.Path(path_type=Path))
+@click.option("--note", help="Optional note or description for the archive")
+@click.option("--name", help="Custom name for the archive (default: source_name_timestamp)")
+@click.option("--no-archive", is_flag=True, help="Skip creating the .tar.gz archive")
+@click.option("--delete-after-archive", is_flag=True, help="Delete original directory after archiving")
+@click.option("--force", is_flag=True, help="Skip confirmation prompts")
+@click.option("--compress-level", type=click.IntRange(1, 9), default=6, show_default=True,
+              help="Compression level (1=fastest, 9=smallest)")
+@click.option("--exclude", multiple=True, help="Exclude patterns (can be used multiple times)")
+@click.option("--upload", is_flag=True, help="Upload the files to remote storage")
+@click.option("--remote-path", help="Remote storage destination path")
+@click.option("--storage-provider", type=click.Choice(["rclone", "aws", "gcp", "azure"]), 
+              default="rclone", show_default=True, help="Storage provider to use")
+def main(
+    source_path: Path,
+    archive_dir: Path,
+    note: Optional[str],
+    name: Optional[str],
+    no_archive: bool,
+    delete_after_archive: bool,
+    force: bool,
+    compress_level: int,
+    exclude: List[str],
+    upload: bool,
+    remote_path: Optional[str],
+    storage_provider: str
+):
+    """Coldstore - Archive directories to cold storage with comprehensive metadata.
+    
+    SOURCE_PATH is the path to the source directory to archive.
+    ARCHIVE_DIR is the directory where the archive and metadata will be stored.
+    """
     # Validate arguments
-    if args.upload and not args.remote_path:
-        parser.error("--upload requires --remote-path")
+    if upload and not remote_path:
+        raise click.ClickException("--upload requires --remote-path")
 
     # Create archive directory
-    archive_dir = Path(args.archive_dir).expanduser().resolve()
+    archive_dir = archive_dir.expanduser().resolve()
     archive_dir.mkdir(parents=True, exist_ok=True)
 
     # Run the archiver
     try:
         archive_project(
-            Path(args.source_path),
+            source_path,
             archive_dir,
-            note=args.note,
-            archive_name=args.name,
-            remote_path=args.remote_path,
-            storage_provider=args.storage_provider,
-            do_archive=not args.no_archive,
-            do_upload=args.upload,
-            delete_after_archive=args.delete_after_archive,
-            force=args.force,
-            compress_level=args.compress_level,
-            exclude_patterns=args.exclude
+            note=note,
+            archive_name=name,
+            remote_path=remote_path,
+            storage_provider=storage_provider,
+            do_archive=not no_archive,
+            do_upload=upload,
+            delete_after_archive=delete_after_archive,
+            force=force,
+            compress_level=compress_level,
+            exclude_patterns=list(exclude)
         )
     except KeyboardInterrupt:
-        print("\n⚠️  Operation cancelled by user")
+        click.echo("\n⚠️  Operation cancelled by user")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        click.echo(f"\n❌ Error: {e}", err=True)
         if os.environ.get("DEBUG"):
             import traceback
             traceback.print_exc()
