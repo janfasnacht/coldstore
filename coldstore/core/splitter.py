@@ -8,6 +8,73 @@ from typing import Optional
 from ..utils.formatters import get_human_size, parse_size
 
 
+def estimate_compression_ratio(
+    file_path: Path, file_size: int, compress_level: int
+) -> float:
+    """Estimate compression ratio based on file type and characteristics.
+
+    Args:
+        file_path: Path to the file
+        file_size: Size of the file in bytes
+        compress_level: Compression level (1-9)
+
+    Returns:
+        Estimated compression ratio (0.0 to 1.0, where 0.1 = 10% of original size)
+    """
+    suffix = file_path.suffix.lower()
+
+    # Base compression estimates by file type
+    compression_estimates = {
+        # Already compressed formats (minimal additional compression)
+        '.jpg': 0.95, '.jpeg': 0.95, '.png': 0.90, '.gif': 0.95,
+        '.mp4': 0.98, '.avi': 0.98, '.mov': 0.98, '.mkv': 0.98,
+        '.mp3': 0.95, '.flac': 0.98, '.wav': 0.45,
+        '.zip': 0.95, '.7z': 0.95, '.rar': 0.95, '.gz': 0.95,
+        '.pdf': 0.85,
+
+        # Binary formats (moderate compression)
+        '.exe': 0.65, '.dll': 0.65, '.so': 0.65,
+        '.pyc': 0.60, '.class': 0.60,
+        '.pickle': 0.50, '.gpickle': 0.40,  # pickled data often compresses well
+        '.db': 0.60, '.sqlite': 0.60,
+
+        # Text-based formats (good compression)
+        '.txt': 0.35, '.log': 0.25,  # Logs often have repetitive content
+        '.csv': 0.40, '.tsv': 0.40,
+        '.json': 0.35, '.xml': 0.30, '.html': 0.30,
+        '.py': 0.45, '.js': 0.45, '.css': 0.40,
+        '.c': 0.45, '.cpp': 0.45, '.h': 0.45,
+        '.java': 0.45, '.kt': 0.45,
+        '.md': 0.50, '.rst': 0.50,
+        '.yaml': 0.45, '.yml': 0.45,
+        '.ini': 0.50, '.conf': 0.45,
+        '.do': 0.45,  # Stata do files
+        '.r': 0.45,   # R scripts
+    }
+
+    # Get base estimate
+    base_ratio = compression_estimates.get(suffix, 0.65)  # Default: 65%
+
+    # Adjust for compression level (higher level = better compression)
+    # Level 1: +10% size, Level 9: -15% size relative to level 6
+    level_adjustment = {
+        1: 1.10, 2: 1.08, 3: 1.05, 4: 1.02, 5: 1.0,
+        6: 1.0,  # baseline
+        7: 0.95, 8: 0.90, 9: 0.85
+    }
+
+    adjusted_ratio = base_ratio * level_adjustment.get(compress_level, 1.0)
+
+    # For very large files, assume slightly better compression due to more patterns
+    if file_size > 100 * 1024 * 1024:  # > 100MB
+        adjusted_ratio *= 0.9
+    elif file_size > 1024 * 1024 * 1024:  # > 1GB
+        adjusted_ratio *= 0.8
+
+    # Ensure ratio stays within reasonable bounds
+    return max(0.1, min(0.98, adjusted_ratio))
+
+
 def collect_files_to_archive(
     source_path: Path, exclude_patterns: Optional[list[str]] = None
 ) -> list[tuple[Path, str]]:
@@ -85,8 +152,11 @@ def create_split_archives(
     for file_path, arc_name in files_to_archive:
         file_size = file_path.stat().st_size
 
-        # Estimate compressed size (rough approximation: 70% of original)
-        estimated_compressed = int(file_size * 0.7)
+        # Estimate compressed size based on file type and characteristics
+        compression_ratio = estimate_compression_ratio(
+            file_path, file_size, compress_level
+        )
+        estimated_compressed = int(file_size * compression_ratio)
 
         # If adding this file would exceed the limit, create current archive
         if current_part and (current_size + estimated_compressed) > max_size_bytes:
