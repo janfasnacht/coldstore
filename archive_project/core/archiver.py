@@ -6,12 +6,12 @@ import hashlib
 import shutil
 import tarfile
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional
 
-from .metadata import get_metadata
 from ..storage.rclone import upload_files
-from ..utils.file_ops import get_file_tree, file_tree_fallback
+from ..utils.file_ops import file_tree_fallback, get_file_tree
 from ..utils.formatters import generate_readme, get_human_size
+from .metadata import get_metadata
 
 
 def archive_project(
@@ -26,15 +26,16 @@ def archive_project(
     delete_after_archive: bool = False,
     force: bool = False,
     compress_level: int = 6,
-    exclude_patterns: Optional[List[str]] = None
-) -> Tuple[Optional[Path], Optional[Path], Optional[Path]]:
+    exclude_patterns: Optional[list[str]] = None,
+) -> tuple[Optional[Path], Optional[Path], Optional[Path]]:
     """Archive a directory with enhanced features.
-    
+
     Args:
         source_path: Path to source directory to archive
         archive_dir: Directory to store archive and metadata
         note: Optional note for README
-        archive_name: Optional custom name for archive (defaults to source_name_timestamp)
+        archive_name: Optional custom name for archive
+            (defaults to source_name_timestamp)
         remote_path: Remote storage path
         storage_provider: Storage provider to use
         do_archive: Whether to create tar.gz archive
@@ -43,7 +44,7 @@ def archive_project(
         force: Skip confirmation prompts
         compress_level: Compression level (1-9)
         exclude_patterns: List of patterns to exclude from archive
-        
+
     Returns:
         Tuple of (archive_path, sha256_path, readme_path)
     """
@@ -51,10 +52,10 @@ def archive_project(
     source_path = Path(source_path).expanduser().resolve()
     if not source_path.exists():
         raise FileNotFoundError(f"Source path not found: {source_path}")
-    
+
     source_name = source_path.name
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d")
-    
+
     # Use custom archive name if provided, otherwise default to source_name_timestamp
     if archive_name:
         base_name = archive_name
@@ -71,15 +72,21 @@ def archive_project(
     # Collect metadata first (to estimate time required)
     print(f"📊 Collecting metadata for {source_path}...")
     meta = get_metadata(source_path)
-    size_human = meta.get('total_size_human', meta['total_size_gb'])
+    size_human = meta.get("total_size_human", meta["total_size_gb"])
     print(f"Found {meta['file_count']} files ({size_human}).")
-    
+
     # Warn about large archives
-    size_gb = meta.get('total_size_gb', 0)
+    size_gb = meta.get("total_size_gb", 0)
     if size_gb > 10:
-        print(f"⚠️  Large archive detected ({size_human}). This may take a while to compress and transfer.")
+        print(
+            f"⚠️  Large archive detected ({size_human}). "
+            "This may take a while to compress and transfer."
+        )
     if size_gb > 50:
-        print(f"💡 Consider using --split-size option for archives this large (not yet implemented).")
+        print(
+            "💡 Consider using --split-size option for archives this large "
+            "(not yet implemented)."
+        )
 
     # Generate file tree (with fallback)
     try:
@@ -106,7 +113,9 @@ def archive_project(
                             return None
                 return tarinfo
 
-            with tarfile.open(archive_path, f"w:gz", compresslevel=compress_level) as tar:
+            with tarfile.open(
+                archive_path, "w:gz", compresslevel=compress_level
+            ) as tar:
                 tar.add(source_path, arcname=source_name, filter=filter_func)
 
             # Calculate checksum with progress indicator
@@ -117,7 +126,8 @@ def archive_project(
             last_progress = 0
 
             with open(archive_path, "rb") as f:
-                for byte_block in iter(lambda: f.read(65536), b""):  # Larger chunks for better performance
+                # Larger chunks for better performance
+                for byte_block in iter(lambda: f.read(65536), b""):
                     sha256_hash.update(byte_block)
                     bytes_read += len(byte_block)
                     # Update progress every 5%
@@ -143,8 +153,14 @@ def archive_project(
     # Generate and write README
     print("📄 Writing metadata...")
     readme_contents = generate_readme(
-        base_name, source_name, str(source_path), timestamp,
-        meta, file_tree, sha256_hex, note
+        base_name,
+        source_name,
+        str(source_path),
+        timestamp,
+        meta,
+        file_tree,
+        sha256_hex,
+        note,
     )
 
     with open(readme_path, "w") as f:
@@ -154,25 +170,38 @@ def archive_project(
     if sha256_path:
         print(f"✅ SHA256 saved to: {sha256_path}")
     if archive_path:
-        print(f"✅ Archive created: {archive_path} ({get_human_size(archive_path.stat().st_size)})")
+        archive_size = get_human_size(archive_path.stat().st_size)
+        print(f"✅ Archive created: {archive_path} ({archive_size})")
 
     # Upload files if requested
     if do_upload and remote_path:
         files_to_upload = [p for p in [archive_path, sha256_path, readme_path] if p]
         results = upload_files(
-            files_to_upload,
-            remote_path,
-            storage_provider=storage_provider
+            files_to_upload, remote_path, storage_provider=storage_provider
         )
 
         success_count = sum(1 for r in results.values() if r["success"])
-        print(f"\n☁️  Upload complete: {success_count}/{len(files_to_upload)} files uploaded successfully")
+        total_files = len(files_to_upload)
+        print(
+            f"\n☁️  Upload complete: {success_count}/{total_files} "
+            "files uploaded successfully"
+        )
 
     # Delete original if requested
     if delete_after_archive and archive_path and archive_path.exists():
-        print(f"\n🗑️  Archive complete. Preparing to delete original directory: {source_path}")
+        print(
+            f"\n🗑️  Archive complete. Preparing to delete original "
+            f"directory: {source_path}"
+        )
         if not force:
-            confirm = input(f"Are you sure you want to permanently delete {source_path}? [y/N]: ").strip().lower()
+            confirm = (
+                input(
+                    f"Are you sure you want to permanently delete {source_path}? "
+                    "[y/N]: "
+                )
+                .strip()
+                .lower()
+            )
             if confirm != "y":
                 print("🛑 Deletion cancelled.")
                 return archive_path, sha256_path, readme_path

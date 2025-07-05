@@ -1,4 +1,4 @@
-"""Coldstore - Cold storage archiving utility for long-term preservation with metadata."""
+"""Coldstore - Cold storage archiving utility for long-term preservation."""
 
 __version__ = "0.1.0"
 

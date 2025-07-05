@@ -5,27 +5,28 @@ import getpass
 import os
 import platform
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Any, Optional
 
 from ..utils.formatters import get_human_size
 
 
-def get_metadata(source_path: Path) -> Dict[str, Any]:
+def get_metadata(source_path: Path) -> dict[str, Any]:
     """Enhanced metadata collection with additional useful information.
-    
+
     Args:
         source_path: Path to the source directory to analyze
-        
+
     Returns:
-        Dictionary containing directory metadata including file counts, sizes, dates, etc.
+        Dictionary containing directory metadata including file counts,
+        sizes, dates, etc.
     """
     file_count = 0
     dir_count = 0
     total_size = 0
     earliest: Optional[datetime.datetime] = None
     latest: Optional[datetime.datetime] = None
-    file_types: Dict[str, int] = {}
-    largest_files: List[Tuple[Path, int]] = []
+    file_types: dict[str, int] = {}
+    largest_files: list[tuple[Path, int]] = []
 
     for root, dirs, files in os.walk(source_path):
         dir_count += len(dirs)
@@ -52,9 +53,9 @@ def get_metadata(source_path: Path) -> Dict[str, Any]:
 
                 # Track largest files
                 largest_files.append((fp.relative_to(source_path), size))
-                largest_files = sorted(
-                    largest_files, key=lambda x: x[1], reverse=True
-                )[:10]
+                largest_files = sorted(largest_files, key=lambda x: x[1], reverse=True)[
+                    :10
+                ]
 
             except Exception:
                 # Skip files we can't access
@@ -65,7 +66,7 @@ def get_metadata(source_path: Path) -> Dict[str, Any]:
         system_info = {
             "os": platform.system(),
             "hostname": platform.node(),
-            "username": getpass.getuser()
+            "username": getpass.getuser(),
         }
     except Exception as e:
         system_info = {"note": f"System info collection failed: {e}"}
@@ -74,7 +75,7 @@ def get_metadata(source_path: Path) -> Dict[str, Any]:
     top_file_types = sorted(
         [(ext, count) for ext, count in file_types.items()],
         key=lambda x: x[1],
-        reverse=True
+        reverse=True,
     )[:10]
 
     return {
@@ -86,7 +87,9 @@ def get_metadata(source_path: Path) -> Dict[str, Any]:
         "earliest_date": earliest.strftime("%Y-%m-%d %H:%M:%S") if earliest else "N/A",
         "latest_date": latest.strftime("%Y-%m-%d %H:%M:%S") if latest else "N/A",
         "top_file_types": top_file_types,
-        "largest_files": [(str(path), get_human_size(size)) for path, size in largest_files],
+        "largest_files": [
+            (str(path), get_human_size(size)) for path, size in largest_files
+        ],
         "system_info": system_info,
-        "archive_date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "archive_date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }

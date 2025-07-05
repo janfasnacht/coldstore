@@ -2,23 +2,23 @@
 
 import subprocess
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Callable
+from typing import Any, Callable, Optional
 
 
 def upload_files(
-    files: List[Path],
+    files: list[Path],
     destination: str,
     storage_provider: str = "rclone",
-    progress_callback: Optional[Callable[[Path, bool], None]] = None
-) -> Dict[Path, Dict[str, Any]]:
+    progress_callback: Optional[Callable[[Path, bool], None]] = None,
+) -> dict[Path, dict[str, Any]]:
     """Generic file upload function supporting multiple cloud storage providers.
-    
+
     Args:
         files: List of file paths to upload
         destination: Destination path/URL
         storage_provider: Which tool/method to use (currently only "rclone")
         progress_callback: Optional callback function for progress updates
-        
+
     Returns:
         Dictionary mapping file paths to upload results
     """
@@ -37,7 +37,7 @@ def upload_files(
                 success = result.returncode == 0
                 results[f] = {
                     "success": success,
-                    "error": result.stderr if not success else None
+                    "error": result.stderr if not success else None,
                 }
                 if not success:
                     print(f"❌ Error uploading {f.name}: {result.stderr}")
