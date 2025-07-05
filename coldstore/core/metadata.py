@@ -1,4 +1,4 @@
-"""Metadata collection functionality for archive_project."""
+"""Metadata collection functionality for coldstore."""
 
 import datetime
 import getpass

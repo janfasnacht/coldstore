@@ -1,4 +1,4 @@
-"""Rclone storage backend for archive_project."""
+"""Rclone storage backend for coldstore."""
 
 import subprocess
 from pathlib import Path

@@ -1,4 +1,4 @@
-"""Entry point for running archive_project as a module."""
+"""Entry point for running coldstore as a module."""
 
 from .cli.main import main
 

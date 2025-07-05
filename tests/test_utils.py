@@ -1,8 +1,8 @@
 """Tests for utility functions."""
 
-from archive_project.core.metadata import get_metadata
-from archive_project.utils.file_ops import file_tree_fallback, get_file_tree
-from archive_project.utils.formatters import generate_readme, get_human_size
+from coldstore.core.metadata import get_metadata
+from coldstore.utils.file_ops import file_tree_fallback, get_file_tree
+from coldstore.utils.formatters import generate_readme, get_human_size
 
 
 class TestFormatters:

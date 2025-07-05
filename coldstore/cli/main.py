@@ -1,4 +1,4 @@
-"""Command-line interface for archive_project."""
+"""Command-line interface for coldstore."""
 
 import os
 import sys
@@ -7,7 +7,7 @@ from typing import Optional
 
 import click
 
-from ..core.archiver import archive_project
+from ..core.archive import create_coldstore_archive
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
@@ -45,6 +45,10 @@ from ..core.archiver import archive_project
     show_default=True,
     help="Storage provider to use",
 )
+@click.option(
+    "--split-size",
+    help="Split large archives (e.g., '2GB', '500MB'). Useful for size limits.",
+)
 def main(
     source_path: Path,
     archive_dir: Path,
@@ -58,6 +62,7 @@ def main(
     upload: bool,
     remote_path: Optional[str],
     storage_provider: str,
+    split_size: Optional[str],
 ):
     """Coldstore - Archive directories to cold storage with comprehensive metadata.
 
@@ -74,7 +79,7 @@ def main(
 
     # Run the archiver
     try:
-        archive_project(
+        create_coldstore_archive(
             source_path,
             archive_dir,
             note=note,
@@ -87,6 +92,7 @@ def main(
             force=force,
             compress_level=compress_level,
             exclude_patterns=list(exclude),
+            split_size=split_size,
         )
     except KeyboardInterrupt:
         click.echo("\n⚠️  Operation cancelled by user")

@@ -1,5 +1,6 @@
-"""Formatting utilities for archive_project."""
+"""Formatting utilities for coldstore."""
 
+import re
 from typing import Optional
 
 
@@ -21,6 +22,60 @@ def get_human_size(size_bytes: int) -> str:
         size /= 1024
         i += 1
     return f"{size:.2f} {units[i]}"
+
+
+def _get_size_multiplier(unit: str) -> int:
+    """Get the multiplier for a size unit."""
+    multipliers = {
+        '': 1, 'B': 1,
+        'KB': 1024,
+        'MB': 1024 ** 2,
+        'GB': 1024 ** 3,
+        'TB': 1024 ** 4,
+        'PB': 1024 ** 5,
+        'EB': 1024 ** 6,
+    }
+
+    if unit in multipliers:
+        return multipliers[unit]
+    raise ValueError(f"Unknown size unit: {unit}")
+
+
+def parse_size(size_str: str) -> int:
+    """Parse human-readable size string to bytes.
+
+    Args:
+        size_str: Size string like '2GB', '500MB', '1.5TB'
+
+    Returns:
+        Size in bytes
+
+    Raises:
+        ValueError: If size string format is invalid
+    """
+    if not size_str:
+        raise ValueError("Size string cannot be empty")
+
+    # Remove whitespace and convert to uppercase
+    size_str = size_str.strip().upper()
+
+    # Extract number and unit using regex
+    match = re.match(r'^([0-9]*\.?[0-9]+)\s*([KMGTPE]?B?)$', size_str)
+    if not match:
+        raise ValueError(
+            f"Invalid size format: {size_str}. "
+            "Use format like '2GB', '500MB'"
+        )
+
+    number_str, unit = match.groups()
+
+    try:
+        number = float(number_str)
+    except ValueError as e:
+        raise ValueError(f"Invalid number in size: {number_str}") from e
+
+    multiplier = _get_size_multiplier(unit)
+    return int(number * multiplier)
 
 
 def generate_readme(
@@ -61,6 +116,20 @@ def generate_readme(
             large_files_section += f"- {path}: {size}\n"
 
     system_info = meta.get("system_info", {})
+    split_info = meta.get("split_archive", {})
+
+    # Build split archive section if applicable
+    split_section = ""
+    if split_info.get("is_split"):
+        split_section = f"""## Split Archive Information
+- Archive type: Split archive
+- Number of parts: {split_info['num_parts']}
+- Total compressed size: {get_human_size(split_info['total_size'])}
+- Parts:
+"""
+        for i, part_name in enumerate(split_info['part_files'], 1):
+            split_section += f"  {i}. {part_name}\n"
+        split_section += "\n"
 
     return f"""# Archive: {base_name}
 
@@ -81,7 +150,7 @@ def generate_readme(
 ## Notes
 {note or "(No additional notes provided)"}
 
-{file_types_section}
+{split_section}{file_types_section}
 {large_files_section}
 ## Directory Structure (up to 2 levels)
 

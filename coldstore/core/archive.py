@@ -1,20 +1,21 @@
-"""Core archiving functionality for archive_project."""
+"""Core archiving functionality for coldstore."""
 
 import datetime
 import fnmatch
-import hashlib
 import shutil
 import tarfile
 from pathlib import Path
 from typing import Optional
 
 from ..storage.rclone import upload_files
-from ..utils.file_ops import file_tree_fallback, get_file_tree
+from ..utils.file_ops import get_file_tree
 from ..utils.formatters import generate_readme, get_human_size
+from .checksums import calculate_checksums_for_parts, write_sha256_file
 from .metadata import get_metadata
+from .splitter import create_split_archives
 
 
-def _setup_paths_and_names(
+def setup_archive_paths(
     source_path: Path, archive_dir: Path, archive_name: Optional[str]
 ) -> tuple[Path, str, str, Path, Path, Path]:
     """Setup file paths and names for archiving."""
@@ -40,7 +41,7 @@ def _setup_paths_and_names(
     return source_path, source_name, base_name, archive_path, sha256_path, readme_path
 
 
-def _collect_metadata_and_warn(source_path: Path) -> dict:
+def collect_metadata_and_warn(source_path: Path) -> dict:
     """Collect metadata and warn about large archives."""
     print(f"📊 Collecting metadata for {source_path}...")
     meta = get_metadata(source_path)
@@ -63,10 +64,12 @@ def _collect_metadata_and_warn(source_path: Path) -> dict:
     return meta
 
 
-def _generate_file_tree(source_path: Path) -> str:
+def generate_file_tree(source_path: Path) -> str:
     """Generate file tree with fallback."""
     try:
         print("🌳 Generating directory structure...")
+        from ..utils.file_ops import file_tree_fallback
+
         file_tree = get_file_tree(source_path)
         if "Could not generate file tree" in file_tree:
             file_tree = file_tree_fallback(source_path)
@@ -76,90 +79,80 @@ def _generate_file_tree(source_path: Path) -> str:
         return f"Error generating directory structure: {e}"
 
 
-def _create_archive(
+def create_archives(
     source_path: Path,
     source_name: str,
     archive_path: Path,
-    sha256_path: Path,
     compress_level: int,
     exclude_patterns: Optional[list[str]],
-    force: bool
-) -> Optional[str]:
-    """Create tar.gz archive and calculate SHA256."""
-    print(f"📦 Creating archive: {archive_path}")
+    split_size: Optional[str] = None,
+) -> list[Path]:
+    """Create archive(s) - either single or split based on split_size."""
     try:
-        # Filter function for exclusions
-        def filter_func(tarinfo):
-            if exclude_patterns:
-                name = tarinfo.name
-                for pattern in exclude_patterns:
-                    if fnmatch.fnmatch(name, pattern):
-                        print(f"  Excluding: {name}")
-                        return None
-            return tarinfo
+        if split_size:
+            # Create split archives
+            return create_split_archives(
+                source_path, source_name, archive_path, compress_level,
+                exclude_patterns, split_size
+            )
+        else:
+            # Create single archive
+            print(f"📦 Creating archive: {archive_path}")
 
-        with tarfile.open(
-            archive_path, "w:gz", compresslevel=compress_level
-        ) as tar:
-            tar.add(source_path, arcname=source_name, filter=filter_func)
+            def filter_func(tarinfo):
+                if exclude_patterns:
+                    name = tarinfo.name
+                    for pattern in exclude_patterns:
+                        if fnmatch.fnmatch(name, pattern):
+                            print(f"  Excluding: {name}")
+                            return None
+                return tarinfo
 
-        # Calculate checksum with progress indicator
-        print("🔐 Calculating SHA256 checksum...")
-        sha256_hash = hashlib.sha256()
-        total_size = archive_path.stat().st_size
-        bytes_read = 0
-        last_progress = 0
+            with tarfile.open(
+                archive_path, "w:gz", compresslevel=compress_level
+            ) as tar:
+                tar.add(source_path, arcname=source_name, filter=filter_func)
 
-        with open(archive_path, "rb") as f:
-            # Larger chunks for better performance
-            for byte_block in iter(lambda: f.read(65536), b""):
-                sha256_hash.update(byte_block)
-                bytes_read += len(byte_block)
-                # Update progress every 5%
-                if total_size > 0:
-                    progress = int(bytes_read / total_size * 100)
-                    if progress > last_progress and progress % 5 == 0:
-                        print(f"  Progress: {progress}%", end="\r")
-                        last_progress = progress
-
-        sha256_hex = sha256_hash.hexdigest()
-        print(f"\n✅ Checksum complete: {sha256_hex}")
-        with open(sha256_path, "w") as f:
-            f.write(f"{sha256_hex}  {archive_path.name}\n")
-        return sha256_hex
+            return [archive_path]
     except Exception as e:
         print(f"❌ Error creating archive: {e}")
-        if not force:
-            raise
-        return None
+        raise
 
 
-def _upload_files(
-    archive_path: Optional[Path],
+def handle_upload(
+    archive_paths: list[Path],
     sha256_path: Optional[Path],
     readme_path: Path,
     remote_path: str,
-    storage_provider: str
+    storage_provider: str,
 ) -> None:
-    """Upload files to remote storage."""
-    files_to_upload = [p for p in [archive_path, sha256_path, readme_path] if p]
-    results = upload_files(
-        files_to_upload, remote_path, storage_provider=storage_provider
-    )
+    """Handle uploading all archive files to remote storage."""
+    files_to_upload = []
+    if archive_paths:
+        files_to_upload.extend(archive_paths)
+    if sha256_path:
+        files_to_upload.append(sha256_path)
+    files_to_upload.append(readme_path)
 
-    success_count = sum(1 for r in results.values() if r["success"])
-    total_files = len(files_to_upload)
-    print(
-        f"\n☁️  Upload complete: {success_count}/{total_files} "
-        "files uploaded successfully"
-    )
+    if files_to_upload:
+        results = upload_files(
+            files_to_upload,
+            remote_path,
+            storage_provider=storage_provider,
+        )
+        success_count = sum(1 for r in results.values() if r["success"])
+        total_files = len(files_to_upload)
+        print(
+            f"\n☁️  Upload complete: {success_count}/{total_files} "
+            "files uploaded successfully"
+        )
 
 
-def _delete_original(
-    source_path: Path, archive_path: Optional[Path], force: bool
+def delete_original_source(
+    source_path: Path, archive_paths: list[Path], force: bool
 ) -> None:
     """Delete original directory after confirmation."""
-    if not (archive_path and archive_path.exists()):
+    if not archive_paths or not any(p.exists() for p in archive_paths):
         return
 
     print(
@@ -186,7 +179,7 @@ def _delete_original(
         print(f"❌ Failed to delete directory: {e}")
 
 
-def archive_project(
+def create_coldstore_archive(
     source_path: Path,
     archive_dir: Path,
     note: Optional[str] = None,
@@ -199,8 +192,9 @@ def archive_project(
     force: bool = False,
     compress_level: int = 6,
     exclude_patterns: Optional[list[str]] = None,
+    split_size: Optional[str] = None,
 ) -> tuple[Optional[Path], Optional[Path], Optional[Path]]:
-    """Archive a directory with enhanced features.
+    """Create a coldstore archive with enhanced features.
 
     Args:
         source_path: Path to source directory to archive
@@ -216,40 +210,72 @@ def archive_project(
         force: Skip confirmation prompts
         compress_level: Compression level (1-9)
         exclude_patterns: List of patterns to exclude from archive
+        split_size: Split archives larger than this size (e.g., '2GB', '500MB')
 
     Returns:
         Tuple of (archive_path, sha256_path, readme_path)
     """
     # Setup paths and names
     source_path, source_name, base_name, archive_path, sha256_path, readme_path = (
-        _setup_paths_and_names(source_path, archive_dir, archive_name)
+        setup_archive_paths(source_path, archive_dir, archive_name)
     )
 
     # Collect metadata and warn about large archives
-    meta = _collect_metadata_and_warn(source_path)
+    meta = collect_metadata_and_warn(source_path)
 
     # Generate file tree
-    file_tree = _generate_file_tree(source_path)
+    file_tree = generate_file_tree(source_path)
 
     # Create archive if requested
-    sha256_hex = None
+    archive_paths = []
+    master_hash = None
+
     if do_archive:
-        sha256_hex = _create_archive(
-            source_path, source_name, archive_path, sha256_path,
-            compress_level, exclude_patterns, force
+        archive_paths = create_archives(
+            source_path, source_name, archive_path, compress_level,
+            exclude_patterns, split_size
         )
-        if sha256_hex is None and not force:
-            return None, None, None
+
+        # Calculate checksums
+        sha256_hashes = calculate_checksums_for_parts(archive_paths)
+        master_hash = write_sha256_file(
+            sha256_path, sha256_hashes, is_split=len(archive_paths) > 1
+        )
+
+        print(f"✅ Checksums complete. Master hash: {master_hash[:16]}...")
+
+        # For backward compatibility, use first archive path
+        if archive_paths:
+            archive_path = archive_paths[0]
+        else:
+            archive_path = None
     else:
         archive_path = None
         sha256_path = None
+        archive_paths = []
 
     # Generate and write README
     print("📄 Writing metadata...")
+
+    # Add split archive info to metadata if applicable
+    if len(archive_paths) > 1:
+        split_info = {
+            "is_split": True,
+            "num_parts": len(archive_paths),
+            "part_files": [p.name for p in archive_paths],
+            "total_size": sum(p.stat().st_size for p in archive_paths),
+        }
+        meta["split_archive"] = split_info
+
     readme_contents = generate_readme(
-        base_name, source_name, str(source_path),
+        base_name,
+        source_name,
+        str(source_path),
         datetime.datetime.now().strftime("%Y-%m-%d"),
-        meta, file_tree, sha256_hex, note,
+        meta,
+        file_tree,
+        master_hash,
+        note,
     )
 
     with open(readme_path, "w") as f:
@@ -258,18 +284,30 @@ def archive_project(
     print(f"\n✅ Metadata written to: {readme_path}")
     if sha256_path:
         print(f"✅ SHA256 saved to: {sha256_path}")
-    if archive_path:
-        archive_size = get_human_size(archive_path.stat().st_size)
-        print(f"✅ Archive created: {archive_path} ({archive_size})")
+
+    if archive_paths:
+        if len(archive_paths) == 1:
+            archive_size = get_human_size(archive_paths[0].stat().st_size)
+            print(f"✅ Archive created: {archive_paths[0]} ({archive_size})")
+        else:
+            total_size = sum(p.stat().st_size for p in archive_paths)
+            total_human = get_human_size(total_size)
+            print(
+                f"✅ Split archive created: {len(archive_paths)} parts, "
+                f"total {total_human}"
+            )
+            for i, part in enumerate(archive_paths, 1):
+                part_size = get_human_size(part.stat().st_size)
+                print(f"  Part {i}: {part.name} ({part_size})")
 
     # Upload files if requested
     if do_upload and remote_path:
-        _upload_files(
-            archive_path, sha256_path, readme_path, remote_path, storage_provider
+        handle_upload(
+            archive_paths, sha256_path, readme_path, remote_path, storage_provider
         )
 
     # Delete original if requested
     if delete_after_archive:
-        _delete_original(source_path, archive_path, force)
+        delete_original_source(source_path, archive_paths, force)
 
     return archive_path, sha256_path, readme_path

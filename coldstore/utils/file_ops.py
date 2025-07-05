@@ -1,4 +1,4 @@
-"""File operation utilities for archive_project."""
+"""File operation utilities for coldstore."""
 
 import subprocess
 from pathlib import Path

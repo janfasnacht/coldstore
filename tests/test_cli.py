@@ -5,7 +5,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from archive_project.cli.main import main
+from coldstore.cli.main import main
 
 
 class TestCLI:

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Cold storage archiving utility for long-term preservation with metadata"
 authors = ["janfasnacht <jan.fasnacht@gmail.com>"]
 readme = "README.md"
-packages = [{include = "archive_project"}]
+packages = [{include = "coldstore"}]
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -20,7 +20,7 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-coldstore = "archive_project.cli.main:main"
+coldstore = "coldstore.cli.main:main"
 
 
 [tool.ruff]

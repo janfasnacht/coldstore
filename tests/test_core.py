@@ -5,8 +5,8 @@ import tarfile
 
 import pytest
 
-from archive_project.core.archiver import archive_project
-from archive_project.core.metadata import get_metadata
+from coldstore.core.archive import create_coldstore_archive
+from coldstore.core.metadata import get_metadata
 
 
 class TestMetadata:
@@ -81,7 +81,7 @@ class TestArchiver:
         archive_dir = tmp_path / "archives"
 
         # Archive
-        archive_path, sha256_path, readme_path = archive_project(
+        archive_path, sha256_path, readme_path = create_coldstore_archive(
             source_path=source_dir, archive_dir=archive_dir, note="Test archive"
         )
 
@@ -111,7 +111,7 @@ class TestArchiver:
 
         archive_dir = tmp_path / "archives"
 
-        archive_path, _, _ = archive_project(
+        archive_path, _, _ = create_coldstore_archive(
             source_path=source_dir, archive_dir=archive_dir, archive_name="custom-name"
         )
 
@@ -125,7 +125,7 @@ class TestArchiver:
 
         archive_dir = tmp_path / "archives"
 
-        archive_path, sha256_path, readme_path = archive_project(
+        archive_path, sha256_path, readme_path = create_coldstore_archive(
             source_path=source_dir, archive_dir=archive_dir, do_archive=False
         )
 
@@ -144,7 +144,7 @@ class TestArchiver:
 
         archive_dir = tmp_path / "archives"
 
-        archive_path, _, _ = archive_project(
+        archive_path, _, _ = create_coldstore_archive(
             source_path=source_dir, archive_dir=archive_dir, exclude_patterns=["*.log"]
         )
 
@@ -165,7 +165,7 @@ class TestArchiver:
         archive_dir = tmp_path / "archives"
 
         # Test lowest compression (fastest)
-        archive_1, _, _ = archive_project(
+        archive_1, _, _ = create_coldstore_archive(
             source_path=source_dir,
             archive_dir=archive_dir,
             archive_name="level-1",
@@ -173,7 +173,7 @@ class TestArchiver:
         )
 
         # Test highest compression (smallest)
-        archive_9, _, _ = archive_project(
+        archive_9, _, _ = create_coldstore_archive(
             source_path=source_dir,
             archive_dir=archive_dir,
             archive_name="level-9",
@@ -191,7 +191,7 @@ class TestArchiver:
         archive_dir = tmp_path / "archives"
 
         with pytest.raises(FileNotFoundError):
-            archive_project(source_path=nonexistent, archive_dir=archive_dir)
+            create_coldstore_archive(source_path=nonexistent, archive_dir=archive_dir)
 
     def test_archive_readme_content(self, tmp_path):
         """Test README content generation."""
@@ -201,7 +201,7 @@ class TestArchiver:
 
         archive_dir = tmp_path / "archives"
 
-        _, _, readme_path = archive_project(
+        _, _, readme_path = create_coldstore_archive(
             source_path=source_dir,
             archive_dir=archive_dir,
             note="Custom note for testing",

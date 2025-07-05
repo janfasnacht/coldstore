@@ -2,6 +2,6 @@
 
 __version__ = "0.1.0"
 
-from .core.archiver import archive_project
+from .core.archive import create_coldstore_archive
 
-__all__ = ["archive_project"]
+__all__ = ["create_coldstore_archive"]
