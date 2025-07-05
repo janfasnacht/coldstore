@@ -22,12 +22,6 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry.scripts]
 coldstore = "archive_project.cli.main:main"
 
-# Development scripts
-test = "pytest"
-test-cov = "pytest --cov=archive_project --cov-report=html --cov-report=term-missing"
-lint = "ruff check ."
-lint-fix = "ruff check --fix ."
-format = "ruff format ."
 
 [tool.ruff]
 line-length = 88
