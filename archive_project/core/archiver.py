@@ -14,6 +14,178 @@ from ..utils.formatters import generate_readme, get_human_size
 from .metadata import get_metadata
 
 
+def _setup_paths_and_names(
+    source_path: Path, archive_dir: Path, archive_name: Optional[str]
+) -> tuple[Path, str, str, Path, Path, Path]:
+    """Setup file paths and names for archiving."""
+    source_path = Path(source_path).expanduser().resolve()
+    if not source_path.exists():
+        raise FileNotFoundError(f"Source path not found: {source_path}")
+
+    source_name = source_path.name
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d")
+
+    if archive_name:
+        base_name = archive_name
+    else:
+        base_name = f"{source_name}_{timestamp}"
+
+    archive_dir = Path(archive_dir).expanduser().resolve()
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    archive_path = archive_dir / f"{base_name}.tar.gz"
+    sha256_path = archive_dir / f"{base_name}.tar.gz.sha256"
+    readme_path = archive_dir / f"{base_name}.README.md"
+
+    return source_path, source_name, base_name, archive_path, sha256_path, readme_path
+
+
+def _collect_metadata_and_warn(source_path: Path) -> dict:
+    """Collect metadata and warn about large archives."""
+    print(f"📊 Collecting metadata for {source_path}...")
+    meta = get_metadata(source_path)
+    size_human = meta.get("total_size_human", meta["total_size_gb"])
+    print(f"Found {meta['file_count']} files ({size_human}).")
+
+    # Warn about large archives
+    size_gb = meta.get("total_size_gb", 0)
+    if size_gb > 10:
+        print(
+            f"⚠️  Large archive detected ({size_human}). "
+            "This may take a while to compress and transfer."
+        )
+    if size_gb > 50:
+        print(
+            "💡 Consider using --split-size option for archives this large "
+            "(not yet implemented)."
+        )
+
+    return meta
+
+
+def _generate_file_tree(source_path: Path) -> str:
+    """Generate file tree with fallback."""
+    try:
+        print("🌳 Generating directory structure...")
+        file_tree = get_file_tree(source_path)
+        if "Could not generate file tree" in file_tree:
+            file_tree = file_tree_fallback(source_path)
+        return file_tree
+    except Exception as e:
+        print(f"Warning: Could not generate directory structure: {e}")
+        return f"Error generating directory structure: {e}"
+
+
+def _create_archive(
+    source_path: Path,
+    source_name: str,
+    archive_path: Path,
+    sha256_path: Path,
+    compress_level: int,
+    exclude_patterns: Optional[list[str]],
+    force: bool
+) -> Optional[str]:
+    """Create tar.gz archive and calculate SHA256."""
+    print(f"📦 Creating archive: {archive_path}")
+    try:
+        # Filter function for exclusions
+        def filter_func(tarinfo):
+            if exclude_patterns:
+                name = tarinfo.name
+                for pattern in exclude_patterns:
+                    if fnmatch.fnmatch(name, pattern):
+                        print(f"  Excluding: {name}")
+                        return None
+            return tarinfo
+
+        with tarfile.open(
+            archive_path, "w:gz", compresslevel=compress_level
+        ) as tar:
+            tar.add(source_path, arcname=source_name, filter=filter_func)
+
+        # Calculate checksum with progress indicator
+        print("🔐 Calculating SHA256 checksum...")
+        sha256_hash = hashlib.sha256()
+        total_size = archive_path.stat().st_size
+        bytes_read = 0
+        last_progress = 0
+
+        with open(archive_path, "rb") as f:
+            # Larger chunks for better performance
+            for byte_block in iter(lambda: f.read(65536), b""):
+                sha256_hash.update(byte_block)
+                bytes_read += len(byte_block)
+                # Update progress every 5%
+                if total_size > 0:
+                    progress = int(bytes_read / total_size * 100)
+                    if progress > last_progress and progress % 5 == 0:
+                        print(f"  Progress: {progress}%", end="\r")
+                        last_progress = progress
+
+        sha256_hex = sha256_hash.hexdigest()
+        print(f"\n✅ Checksum complete: {sha256_hex}")
+        with open(sha256_path, "w") as f:
+            f.write(f"{sha256_hex}  {archive_path.name}\n")
+        return sha256_hex
+    except Exception as e:
+        print(f"❌ Error creating archive: {e}")
+        if not force:
+            raise
+        return None
+
+
+def _upload_files(
+    archive_path: Optional[Path],
+    sha256_path: Optional[Path],
+    readme_path: Path,
+    remote_path: str,
+    storage_provider: str
+) -> None:
+    """Upload files to remote storage."""
+    files_to_upload = [p for p in [archive_path, sha256_path, readme_path] if p]
+    results = upload_files(
+        files_to_upload, remote_path, storage_provider=storage_provider
+    )
+
+    success_count = sum(1 for r in results.values() if r["success"])
+    total_files = len(files_to_upload)
+    print(
+        f"\n☁️  Upload complete: {success_count}/{total_files} "
+        "files uploaded successfully"
+    )
+
+
+def _delete_original(
+    source_path: Path, archive_path: Optional[Path], force: bool
+) -> None:
+    """Delete original directory after confirmation."""
+    if not (archive_path and archive_path.exists()):
+        return
+
+    print(
+        f"\n🗑️  Archive complete. Preparing to delete original "
+        f"directory: {source_path}"
+    )
+    if not force:
+        confirm = (
+            input(
+                f"Are you sure you want to permanently delete {source_path}? "
+                "[y/N]: "
+            )
+            .strip()
+            .lower()
+        )
+        if confirm != "y":
+            print("🛑 Deletion cancelled.")
+            return
+
+    try:
+        shutil.rmtree(source_path)
+        print(f"🗑️  Deleted original directory: {source_path}")
+    except Exception as e:
+        print(f"❌ Failed to delete directory: {e}")
+
+
 def archive_project(
     source_path: Path,
     archive_dir: Path,
@@ -48,119 +220,36 @@ def archive_project(
     Returns:
         Tuple of (archive_path, sha256_path, readme_path)
     """
-    # File path handling
-    source_path = Path(source_path).expanduser().resolve()
-    if not source_path.exists():
-        raise FileNotFoundError(f"Source path not found: {source_path}")
+    # Setup paths and names
+    source_path, source_name, base_name, archive_path, sha256_path, readme_path = (
+        _setup_paths_and_names(source_path, archive_dir, archive_name)
+    )
 
-    source_name = source_path.name
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d")
+    # Collect metadata and warn about large archives
+    meta = _collect_metadata_and_warn(source_path)
 
-    # Use custom archive name if provided, otherwise default to source_name_timestamp
-    if archive_name:
-        base_name = archive_name
-    else:
-        base_name = f"{source_name}_{timestamp}"
-
-    archive_dir = Path(archive_dir).expanduser().resolve()
-    archive_dir.mkdir(parents=True, exist_ok=True)
-
-    archive_path = archive_dir / f"{base_name}.tar.gz"
-    sha256_path = archive_dir / f"{base_name}.tar.gz.sha256"
-    readme_path = archive_dir / f"{base_name}.README.md"
-
-    # Collect metadata first (to estimate time required)
-    print(f"📊 Collecting metadata for {source_path}...")
-    meta = get_metadata(source_path)
-    size_human = meta.get("total_size_human", meta["total_size_gb"])
-    print(f"Found {meta['file_count']} files ({size_human}).")
-
-    # Warn about large archives
-    size_gb = meta.get("total_size_gb", 0)
-    if size_gb > 10:
-        print(
-            f"⚠️  Large archive detected ({size_human}). "
-            "This may take a while to compress and transfer."
-        )
-    if size_gb > 50:
-        print(
-            "💡 Consider using --split-size option for archives this large "
-            "(not yet implemented)."
-        )
-
-    # Generate file tree (with fallback)
-    try:
-        print("🌳 Generating directory structure...")
-        file_tree = get_file_tree(source_path)
-        if "Could not generate file tree" in file_tree:
-            file_tree = file_tree_fallback(source_path)
-    except Exception as e:
-        print(f"Warning: Could not generate directory structure: {e}")
-        file_tree = f"Error generating directory structure: {e}"
+    # Generate file tree
+    file_tree = _generate_file_tree(source_path)
 
     # Create archive if requested
-    sha256_hash = None
+    sha256_hex = None
     if do_archive:
-        print(f"📦 Creating archive: {archive_path}")
-        try:
-            # Filter function for exclusions
-            def filter_func(tarinfo):
-                if exclude_patterns:
-                    name = tarinfo.name
-                    for pattern in exclude_patterns:
-                        if fnmatch.fnmatch(name, pattern):
-                            print(f"  Excluding: {name}")
-                            return None
-                return tarinfo
-
-            with tarfile.open(
-                archive_path, "w:gz", compresslevel=compress_level
-            ) as tar:
-                tar.add(source_path, arcname=source_name, filter=filter_func)
-
-            # Calculate checksum with progress indicator
-            print("🔐 Calculating SHA256 checksum...")
-            sha256_hash = hashlib.sha256()
-            total_size = archive_path.stat().st_size
-            bytes_read = 0
-            last_progress = 0
-
-            with open(archive_path, "rb") as f:
-                # Larger chunks for better performance
-                for byte_block in iter(lambda: f.read(65536), b""):
-                    sha256_hash.update(byte_block)
-                    bytes_read += len(byte_block)
-                    # Update progress every 5%
-                    if total_size > 0:
-                        progress = int(bytes_read / total_size * 100)
-                        if progress > last_progress and progress % 5 == 0:
-                            print(f"  Progress: {progress}%", end="\r")
-                            last_progress = progress
-
-            sha256_hex = sha256_hash.hexdigest()
-            print(f"\n✅ Checksum complete: {sha256_hex}")
-            with open(sha256_path, "w") as f:
-                f.write(f"{sha256_hex}  {archive_path.name}\n")
-        except Exception as e:
-            print(f"❌ Error creating archive: {e}")
-            if not force:
-                return None, None, None
+        sha256_hex = _create_archive(
+            source_path, source_name, archive_path, sha256_path,
+            compress_level, exclude_patterns, force
+        )
+        if sha256_hex is None and not force:
+            return None, None, None
     else:
         archive_path = None
         sha256_path = None
-        sha256_hex = None
 
     # Generate and write README
     print("📄 Writing metadata...")
     readme_contents = generate_readme(
-        base_name,
-        source_name,
-        str(source_path),
-        timestamp,
-        meta,
-        file_tree,
-        sha256_hex,
-        note,
+        base_name, source_name, str(source_path),
+        datetime.datetime.now().strftime("%Y-%m-%d"),
+        meta, file_tree, sha256_hex, note,
     )
 
     with open(readme_path, "w") as f:
@@ -175,41 +264,12 @@ def archive_project(
 
     # Upload files if requested
     if do_upload and remote_path:
-        files_to_upload = [p for p in [archive_path, sha256_path, readme_path] if p]
-        results = upload_files(
-            files_to_upload, remote_path, storage_provider=storage_provider
-        )
-
-        success_count = sum(1 for r in results.values() if r["success"])
-        total_files = len(files_to_upload)
-        print(
-            f"\n☁️  Upload complete: {success_count}/{total_files} "
-            "files uploaded successfully"
+        _upload_files(
+            archive_path, sha256_path, readme_path, remote_path, storage_provider
         )
 
     # Delete original if requested
-    if delete_after_archive and archive_path and archive_path.exists():
-        print(
-            f"\n🗑️  Archive complete. Preparing to delete original "
-            f"directory: {source_path}"
-        )
-        if not force:
-            confirm = (
-                input(
-                    f"Are you sure you want to permanently delete {source_path}? "
-                    "[y/N]: "
-                )
-                .strip()
-                .lower()
-            )
-            if confirm != "y":
-                print("🛑 Deletion cancelled.")
-                return archive_path, sha256_path, readme_path
-
-        try:
-            shutil.rmtree(source_path)
-            print(f"🗑️  Deleted original directory: {source_path}")
-        except Exception as e:
-            print(f"❌ Failed to delete directory: {e}")
+    if delete_after_archive:
+        _delete_original(source_path, archive_path, force)
 
     return archive_path, sha256_path, readme_path
