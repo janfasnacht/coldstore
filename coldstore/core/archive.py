@@ -41,7 +41,7 @@ def setup_archive_paths(
     return source_path, source_name, base_name, archive_path, sha256_path, readme_path
 
 
-def collect_metadata_and_warn(source_path: Path) -> dict:
+def collect_metadata_and_warn(source_path: Path, split_size: Optional[str] = None) -> dict:
     """Collect metadata and warn about large archives."""
     print(f"📊 Collecting metadata for {source_path}...")
     meta = get_metadata(source_path)
@@ -55,10 +55,11 @@ def collect_metadata_and_warn(source_path: Path) -> dict:
             f"⚠️  Large archive detected ({size_human}). "
             "This may take a while to compress and transfer."
         )
-    if size_gb > 50:
+    # Only suggest split-size if not already using it and archive is very large
+    if size_gb > 50 and not split_size:
         print(
             "💡 Consider using --split-size option for archives this large "
-            "(not yet implemented)."
+            "to create more manageable parts."
         )
 
     return meta
@@ -221,7 +222,7 @@ def create_coldstore_archive(
     )
 
     # Collect metadata and warn about large archives
-    meta = collect_metadata_and_warn(source_path)
+    meta = collect_metadata_and_warn(source_path, split_size)
 
     # Generate file tree
     file_tree = generate_file_tree(source_path)
