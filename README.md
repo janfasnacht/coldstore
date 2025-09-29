@@ -1,116 +1,119 @@
-# Project Archiver CLI
+# Coldstore
 
-A robust command-line tool for archiving research project folders with comprehensive metadata, ideal for long-term storage and project preservation.
+**Event-driven, verifiable project archival for high-stakes moments.**
 
-## Features
+Coldstore creates immutable, comprehensive project snapshots at significant events—paper submissions, project handoffs, compliance deadlines, major milestones. When you need definitive proof of project state, Coldstore provides auditable archives with rich metadata and multi-level verification.
 
-- Create compressed `.tar.gz` archives with configurable compression levels
-- Generate SHA256 checksums for integrity verification
-- Create detailed README files with project metadata including:
-  - File and directory counts
-  - Total size in human-readable format
-  - Data date range (earliest/latest file)
-  - File type distribution
-  - Largest files list
-  - Directory structure preview
-  - System information (username, hostname, OS)
-- Cloud storage options (via rclone; more to come)
-- Pattern-based file exclusion
-- Optional deletion of original folder (with confirmation safeguards)
+## Vision & Status
 
-## Motivation
+🎯 **Core Mission**: Be the definitive tool for creating immutable project archives at important events
 
-When a research project is complete, it often needs to be stored for the long term — cleanly, efficiently, and verifiably. This script provides a comprehensive, safe archiving process that thoroughly documents the project's contents, state, and size before cold storage.
+🚧 **Current Status**: In development - transforming from basic archiving utility to comprehensive event-driven archival system
 
-## Installation
+📋 **Implementation**: See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for detailed roadmap
 
+## Target Use Cases
+
+- **Academic Research**: Paper submission snapshots with complete reproducibility metadata
+- **Project Handoffs**: Self-contained packages for seamless collaboration transfers  
+- **Compliance & Audit**: Immutable project states for regulatory requirements
+- **Milestone Capture**: Major deliverables with comprehensive documentation
+
+## Planned Architecture (v2.0)
+
+**Primary Command**: `coldstore freeze` - Create definitive project snapshots
 ```bash
-# Using pip
-pip install -r requirements.txt
+coldstore freeze --milestone "Nature submission" \
+                --include-git \
+                --upload "b2:research-archives" \
+                . ./archives/
+```
 
-# Or with Poetry (recommended)
+**Key Features** (in development):
+- Event-driven workflow with comprehensive metadata capture
+- Git-aware archiving with repository state preservation
+- Multi-level verification (archive + per-file + manifest checksums)
+- Streaming architecture for memory-efficient large project handling
+- GitHub integration for release automation
+- Resumable operations for large archives
+- Compliance-ready metadata templates
+
+## Current Implementation (v1.x - Legacy)
+
+**Installation**:
+```bash
 poetry install
 ```
 
-## Usage
-
+**Current Usage**:
 ```bash
-python archive_project.py <project_path> <archive_output_dir> [options]
+# Via Poetry script
+poetry run coldstore <source_path> <archive_dir> [options]
+
+# Or as module  
+poetry run python -m archive_project <source_path> <archive_dir> [options]
 ```
 
-### Basic Options:
+**Current Features**:
+- Basic tar.gz archive creation with SHA256 verification
+- Cloud upload via rclone integration
+- README metadata generation
+- File exclusion patterns
+- Compression level control
 
-- `--note "Some note"` – Add a custom note to the metadata
-- `--no-archive` – Skip archive creation (generate only metadata)
-- `--delete-after-archive` – Delete original folder after archiving (asks for confirmation)
-- `--force` – Skip confirmation prompts (use with caution)
-
-### Compression Options:
-
-- `--compress-level 1-9` – Set compression level (1=fastest, 9=smallest, default=6)
-- `--exclude "pattern"` – Exclude files matching pattern (can be used multiple times)
-
-### Upload Options:
-
-- `--upload` – Upload files to remote storage
-- `--remote-path "path"` – Remote storage destination path
-- `--storage-provider` – Storage provider to use (rclone)
-
-### Examples:
-
+**Testing**:
 ```bash
-# Basic archive creation
-python archive_project.py ~/Projects/research ~/Archives --note "Final research data"
-
-# Archive with exclusions and custom compression
-python archive_project.py ~/Projects/analysis ~/Archives \
-  --compress-level 9 \
-  --exclude "*.log" \
-  --exclude ".git/*" \
-  --exclude "node_modules/*"
-
-# Archive and upload to cloud storage
-python archive_project.py ~/Projects/experiment ~/Archives \
-  --note "Experiment results" \
-  --upload \
-  --remote-path "b2:research-archives/experiments" \
-  --storage-provider rclone
-
-# Create metadata only (no archive)
-python archive_project.py ~/Projects/survey ~/Archives \
-  --no-archive \
-  --note "Survey results - metadata only"
-
-# Archive and delete original after confirmation
-python archive_project.py ~/Projects/completed ~/Archives \
-  --delete-after-archive
+make test       # Run all tests
+make test-cov   # Run with coverage
+make lint       # Code linting
 ```
 
-## Output
+## Future Architecture (v2.0 - In Development)
 
-The script creates three files:
+**Planned CLI**:
+```bash
+# Primary operation
+coldstore freeze [OPTIONS] <SOURCE> <DESTINATION>
 
+# Verification and inspection
+coldstore verify <ARCHIVE_PATH>
+coldstore inspect <ARCHIVE_PATH>
 ```
-~/Archives/
-├── project_2025-03-25.tar.gz         # Compressed archive
-├── project_2025-03-25.tar.gz.sha256  # SHA256 checksum
-└── project_2025-03-25.README.md      # Comprehensive metadata
-```
+
+**Enhanced Features** (coming):
+- Rich manifest metadata (YAML + JSON)
+- Per-file SHA256 verification  
+- Git repository state capture
+- Dry-run mode with accurate previews
+- Resumable operations for large projects
+- GitHub release integration
+- Event-driven workflows
+
+## Development Status
+
+🏗️ **Phase 1**: Core freeze engine with comprehensive metadata capture
+- Streaming tar+gzip creation
+- Per-file SHA256 hashing
+- Git/environment metadata collection
+- Manifest generation (YAML/JSON)
+- Dry-run and verification capabilities
+
+📅 **Next Steps**: See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for detailed roadmap
+
+## Contributing
+
+This project is in active development. The implementation plan outlines the transformation from current basic archiving to comprehensive event-driven archival system.
+
+**Key Areas**:
+- Core archival engine development
+- Metadata schema design  
+- CLI interface enhancement
+- GitHub integration
+- Compliance features
 
 ## Requirements
 
-- Python 3.8+
-- `rclone` (optional, for cloud uploads)
-- `tree` command (optional, falls back to Python implementation if not available)
-
-## Testing
-
-Run the included tests with pytest:
-
-```bash
-# Run basic tests
-pytest
-
-# Run test with preserved output for inspection
-python test_archive_project.py --preserve
-```
+- Python 3.9+
+- Poetry for dependency management
+- rclone (optional, for cloud uploads)
+- Git (for repository metadata capture)
