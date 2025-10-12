@@ -1,6 +1,5 @@
 """Tests for manifest schema and serialization."""
 
-from datetime import datetime, timezone
 
 import pytest
 
@@ -57,7 +56,7 @@ class TestManifestSchema:
             event=EventMetadata(
                 type="milestone",
                 name="PNAS submission",
-                note="Final version",
+                notes=["Final version"],
                 contacts=["John Doe <john@example.com>"],
             ),
             environment=EnvironmentMetadata(

@@ -1,7 +1,5 @@
 """Pytest configuration and shared fixtures for coldstore tests."""
 
-import tempfile
-from pathlib import Path
 
 import pytest
 

@@ -1,10 +1,11 @@
 """Manifest schema definitions and serialization for coldstore archives."""
 
-from datetime import datetime
+import re
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 
-from pydantic import BaseModel, Field
+import yaml
+from pydantic import BaseModel, Field, field_validator
 
 
 class FileType(str, Enum):
@@ -43,7 +44,9 @@ class EventMetadata(BaseModel):
 
     type: Optional[str] = Field(None, description="Event type (e.g., milestone)")
     name: Optional[str] = Field(None, description="Event name")
-    note: Optional[str] = Field(None, description="Free-form description")
+    notes: list[str] = Field(
+        default_factory=list, description="Free-form descriptions (repeatable)"
+    )
     contacts: list[str] = Field(
         default_factory=list, description="Contact information"
     )
@@ -101,6 +104,14 @@ class ArchiveMetadata(BaseModel):
     sha256: str = Field(..., description="Archive SHA256 checksum")
     member_count: MemberCount = Field(..., description="Member counts by type")
 
+    @field_validator("sha256")
+    @classmethod
+    def validate_sha256(cls, v: str) -> str:
+        """Validate SHA256 is 64 hex characters."""
+        if not re.match(r"^[a-fA-F0-9]{64}$", v):
+            raise ValueError("SHA256 must be 64 hexadecimal characters")
+        return v.lower()  # Normalize to lowercase
+
 
 class PerFileHashMetadata(BaseModel):
     """Per-file hash verification metadata."""
@@ -124,11 +135,27 @@ class FileEntry(BaseModel):
 
     path: str = Field(..., description="Relative path from source root")
     type: FileType = Field(..., description="File type")
-    size: int = Field(..., description="File size in bytes")
+    size: Optional[int] = Field(
+        None, description="File size in bytes (None for directories)"
+    )
     mode: str = Field(..., description="File mode (octal string)")
     mtime_utc: str = Field(..., description="Last modified time (ISO-8601 UTC)")
     sha256: Optional[str] = Field(None, description="SHA256 hash for files")
     link_target: Optional[str] = Field(None, description="Symlink target if applicable")
+
+    @field_validator("sha256")
+    @classmethod
+    def validate_sha256(cls, v: Optional[str]) -> Optional[str]:
+        """Validate SHA256 is 64 hex characters."""
+        if v is None:
+            return v
+        if not re.match(r"^[a-fA-F0-9]{64}$", v):
+            raise ValueError("SHA256 must be 64 hexadecimal characters")
+        return v.lower()  # Normalize to lowercase
+
+    # TODO: Add timestamp validation for mtime_utc (ISO-8601 format)
+    # TODO: Add mode validation (should be valid octal like "0644")
+    # TODO: Add helper classmethod: create_from_path(path, stat_result)
 
 
 class ColdstoreManifest(BaseModel):
@@ -159,11 +186,12 @@ class ColdstoreManifest(BaseModel):
         Returns:
             YAML string representation
         """
-        import yaml
-
         # Convert to dict and serialize
         data = self.model_dump(exclude_none=True, mode="json")
         return yaml.dump(data, default_flow_style=False, sort_keys=False)
+
+    # TODO: Add write_to_file(path) method for disk I/O
+    # TODO: Add add_file(file_entry) helper method
 
     def to_json(self, indent: int = 2) -> str:
         """
@@ -188,10 +216,10 @@ class ColdstoreManifest(BaseModel):
         Returns:
             ColdstoreManifest instance
         """
-        import yaml
-
         data = yaml.safe_load(yaml_str)
         return cls(**data)
+
+    # TODO: Add read_from_file(path) classmethod for disk I/O
 
     @classmethod
     def from_json(cls, json_str: str) -> "ColdstoreManifest":
@@ -235,3 +263,6 @@ FILELIST_DTYPES = {
     "is_executable": int,
     "ext": str,
 }
+
+# TODO: Add write_filelist_csv(path, file_entries) helper function
+# TODO: Add read_filelist_csv(path) -> list[dict] helper function
