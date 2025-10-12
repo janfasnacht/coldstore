@@ -8,7 +8,20 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
-from .manifest import write_filelist_csv
+from .collectors import collect_environment_metadata, collect_git_metadata
+from .manifest import (
+    ArchiveMetadata,
+    ColdstoreManifest,
+    EventMetadata,
+    MemberCount,
+    PerFileHashMetadata,
+    SourceMetadata,
+    SourceNormalization,
+    VerificationMetadata,
+    generate_archive_id,
+    write_filelist_csv,
+    write_sha256_file,
+)
 from .scanner import FileScanner
 
 logger = logging.getLogger(__name__)
@@ -32,6 +45,8 @@ class ArchiveBuilder:
         compression_level: int = DEFAULT_COMPRESSION_LEVEL,
         compute_sha256: bool = True,
         generate_filelist: bool = False,  # TODO: Change to True once stable
+        generate_manifest: bool = False,  # TODO: Change to True once stable
+        event_metadata: Optional[EventMetadata] = None,
     ):
         """
         Initialize archive builder.
@@ -41,6 +56,9 @@ class ArchiveBuilder:
             compression_level: Gzip compression level (0-9, default: 6)
             compute_sha256: Whether to compute SHA256 hash of archive (default: True)
             generate_filelist: Whether to generate FILELIST.csv.gz (default: False)
+            generate_manifest: Whether to generate MANIFEST files (default: False)
+            event_metadata: Optional event metadata for manifest
+                (milestone, notes, etc.)
 
         Note on Determinism:
             Archives are deterministic when the source state is identical:
@@ -56,6 +74,8 @@ class ArchiveBuilder:
         self.compression_level = compression_level
         self.compute_sha256 = compute_sha256
         self.generate_filelist = generate_filelist
+        self.generate_manifest = generate_manifest
+        self.event_metadata = event_metadata or EventMetadata()
         self.archive_sha256: Optional[str] = None
         self.filelist_sha256: Optional[str] = None
         self.bytes_written = 0
@@ -168,7 +188,7 @@ class ArchiveBuilder:
                             )
                             continue
 
-                    # Generate and add FILELIST.csv.gz if requested
+                    # Generate and add COLDSTORE metadata files if requested
                     if self.generate_filelist and file_metadata_list:
                         logger.info(
                             "Generating FILELIST.csv.gz with %d entries",
@@ -197,6 +217,78 @@ class ArchiveBuilder:
                             self.filelist_sha256[:16],
                         )
 
+                    # Add MANIFEST.yaml if requested
+                    # Note: Can't include final archive size/hash since
+                    # archive isn't closed yet
+                    if self.generate_manifest:
+                        logger.info("Generating MANIFEST.yaml for archive")
+
+                        # Generate timestamp and archive ID
+                        from datetime import datetime, timezone
+
+                        timestamp_utc = datetime.now(timezone.utc).isoformat().replace(
+                            "+00:00", "Z"
+                        )
+                        archive_id = generate_archive_id(timestamp_utc)
+
+                        # Collect metadata
+                        git_metadata = collect_git_metadata(scanner.source_root)
+                        env_metadata = collect_environment_metadata()
+
+                        # Create manifest with placeholder values for archive metadata
+                        # (actual values will be in JSON sidecar)
+                        manifest = ColdstoreManifest(
+                            manifest_version="1.0",
+                            created_utc=timestamp_utc,
+                            id=archive_id,
+                            source=SourceMetadata(
+                                root=str(scanner.source_root.resolve()),
+                                normalization=SourceNormalization(
+                                    path_separator="/",
+                                    unicode_normalization="NFC",
+                                    ordering="lexicographic",
+                                    exclude_vcs=scanner.exclude_vcs,
+                                ),
+                            ),
+                            event=self.event_metadata,
+                            environment=env_metadata,
+                            git=git_metadata,
+                            archive=ArchiveMetadata(
+                                format="tar+gzip",
+                                filename=self.output_path.name,
+                                size_bytes=0,  # Placeholder - actual in JSON sidecar
+                                sha256="0" * 64,  # Placeholder - actual in JSON sidecar
+                                member_count=MemberCount(
+                                    files=files_added,
+                                    dirs=dirs_added,
+                                    symlinks=0,
+                                ),
+                            ),
+                            verification=VerificationMetadata(
+                                per_file_hash=PerFileHashMetadata(
+                                    algorithm="sha256",
+                                    manifest_hash_of_filelist=self.filelist_sha256,
+                                )
+                            ),
+                            files=[],
+                        )
+
+                        # Write MANIFEST.yaml to temp and add to archive
+                        with tempfile.TemporaryDirectory() as tmpdir:
+                            yaml_temp_path = Path(tmpdir) / "MANIFEST.yaml"
+                            manifest.write_yaml(yaml_temp_path)
+
+                            coldstore_dir_name = f"{arcname_root}/COLDSTORE"
+                            tar.add(
+                                yaml_temp_path,
+                                arcname=f"{coldstore_dir_name}/MANIFEST.yaml",
+                            )
+
+                        # Store manifest for later update with actual archive info
+                        self._manifest = manifest
+
+                        logger.info("MANIFEST.yaml added to archive")
+
             # Get final hash
             if sha256_hasher:
                 self.archive_sha256 = sha256_hasher.hexdigest()
@@ -211,6 +303,33 @@ class ArchiveBuilder:
                 self.bytes_written,
             )
 
+            # Write JSON sidecar and .sha256 if manifest was generated
+            manifest_json_path = None
+            sha256_file_path = None
+
+            if self.generate_manifest and hasattr(self, "_manifest"):
+                logger.info(
+                    "Writing MANIFEST.json sidecar with actual archive metadata"
+                )
+
+                # Update manifest with actual archive size and hash
+                self._manifest.archive.size_bytes = self.bytes_written
+                self._manifest.archive.sha256 = self.archive_sha256 or ""
+
+                # Write JSON sidecar
+                manifest_json_path = (
+                    self.output_path.parent / f"{self.output_path.name}.MANIFEST.json"
+                )
+                self._manifest.write_json(manifest_json_path)
+                logger.info("MANIFEST.json sidecar written: %s", manifest_json_path)
+
+                # Write .sha256 file if SHA256 was computed
+                if self.archive_sha256:
+                    sha256_file_path = write_sha256_file(
+                        self.output_path, self.archive_sha256
+                    )
+                    logger.info("SHA256 checksum file written: %s", sha256_file_path)
+
             result = {
                 "path": self.output_path,
                 "size_bytes": self.bytes_written,
@@ -223,6 +342,11 @@ class ArchiveBuilder:
             if self.generate_filelist:
                 result["filelist_sha256"] = self.filelist_sha256
                 result["file_metadata"] = file_metadata_list
+
+            # Add MANIFEST paths if generated
+            if self.generate_manifest:
+                result["manifest_json_path"] = manifest_json_path
+                result["sha256_file_path"] = sha256_file_path
 
             return result
 

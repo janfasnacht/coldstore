@@ -740,3 +740,239 @@ class TestFILELISTGeneration:
 
         # Should match reported hash
         assert result["filelist_sha256"] == independent_hash
+
+
+class TestManifestGeneration:
+    """Test MANIFEST file generation."""
+
+    def test_manifest_generated_when_enabled(self, tmp_path):
+        """Test that MANIFEST files are generated when enabled."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file.txt").write_text("content")
+
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path, generate_manifest=True)
+
+        result = builder.create_archive(scanner)
+
+        # Verify MANIFEST files were created
+        assert "manifest_json_path" in result
+        assert "sha256_file_path" in result
+
+        # Check JSON sidecar exists
+        manifest_json = result["manifest_json_path"]
+        assert manifest_json.exists()
+        assert manifest_json.name == "test.tar.gz.MANIFEST.json"
+
+        # Check .sha256 file exists
+        sha256_file = result["sha256_file_path"]
+        assert sha256_file.exists()
+        assert sha256_file.name == "test.tar.gz.sha256"
+
+        # Check MANIFEST.yaml is in archive
+        with tarfile.open(archive_path, "r:gz") as tar:
+            names = [m.name for m in tar.getmembers()]
+            assert "source/COLDSTORE/MANIFEST.yaml" in names
+
+    def test_manifest_not_generated_when_disabled(self, tmp_path):
+        """Test that MANIFEST files are NOT generated when disabled."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file.txt").write_text("content")
+
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path, generate_manifest=False)
+
+        result = builder.create_archive(scanner)
+
+        # No MANIFEST paths in result
+        assert (
+            "manifest_json_path" not in result
+            or result["manifest_json_path"] is None
+        )
+        assert (
+            "sha256_file_path" not in result or result["sha256_file_path"] is None
+        )
+
+        # No sidecar files created
+        manifest_json = archive_path.parent / f"{archive_path.name}.MANIFEST.json"
+        sha256_file = archive_path.parent / f"{archive_path.name}.sha256"
+        assert not manifest_json.exists()
+        assert not sha256_file.exists()
+
+    def test_manifest_contains_correct_metadata(self, tmp_path):
+        """Test that generated MANIFEST contains correct metadata."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file.txt").write_text("content")
+
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+
+        # Create archive with event metadata
+        from coldstore.core.manifest import EventMetadata
+
+        event = EventMetadata(
+            type="milestone",
+            name="test milestone",
+            notes=["test note"],
+            contacts=["test@example.com"],
+        )
+
+        builder = ArchiveBuilder(
+            archive_path,
+            generate_manifest=True,
+            event_metadata=event,
+        )
+
+        result = builder.create_archive(scanner)
+
+        # Read JSON manifest
+        from coldstore.core.manifest import ColdstoreManifest
+
+        manifest_json_path = result["manifest_json_path"]
+        manifest = ColdstoreManifest.read_json(manifest_json_path)
+
+        # Verify structure
+        assert manifest.manifest_version == "1.0"
+        assert manifest.id is not None
+        assert manifest.created_utc is not None
+
+        # Verify source metadata
+        assert str(source.resolve()) in manifest.source.root
+        assert manifest.source.normalization.ordering == "lexicographic"
+
+        # Verify event metadata
+        assert manifest.event.type == "milestone"
+        assert manifest.event.name == "test milestone"
+        assert "test note" in manifest.event.notes
+        assert "test@example.com" in manifest.event.contacts
+
+        # Verify archive metadata
+        assert manifest.archive.filename == "test.tar.gz"
+        assert manifest.archive.format == "tar+gzip"
+        assert manifest.archive.size_bytes > 0
+        assert len(manifest.archive.sha256) == 64
+        assert manifest.archive.member_count.files == 1
+        assert manifest.archive.member_count.dirs == 0
+
+        # Verify environment metadata
+        assert manifest.environment.system.os is not None
+        assert manifest.environment.tools.coldstore_version is not None
+        assert manifest.environment.tools.python_version is not None
+
+        # Verify git metadata (should be present=False for tmp_path)
+        assert manifest.git.present is False
+
+    def test_sha256_file_format(self, tmp_path):
+        """Test that .sha256 file has correct format."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file.txt").write_text("content")
+
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path, generate_manifest=True)
+
+        result = builder.create_archive(scanner)
+
+        # Read .sha256 file
+        sha256_file = result["sha256_file_path"]
+        content = sha256_file.read_text()
+
+        # Should match sha256sum format: "<hash>  <filename>\n"
+        lines = content.strip().split("\n")
+        assert len(lines) == 1
+
+        parts = lines[0].split("  ", 1)  # Two spaces separator
+        assert len(parts) == 2
+        hash_value, filename = parts
+
+        # Verify hash format
+        assert len(hash_value) == 64
+        assert all(c in "0123456789abcdef" for c in hash_value)
+
+        # Verify filename
+        assert filename == "test.tar.gz"
+
+        # Verify hash matches archive SHA256
+        assert hash_value == result["sha256"]
+
+    def test_manifest_yaml_embedded_in_archive(self, tmp_path):
+        """Test that MANIFEST.yaml is correctly embedded in archive."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file.txt").write_text("content")
+
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path, generate_manifest=True)
+
+        builder.create_archive(scanner)
+
+        # Extract MANIFEST.yaml from archive
+        extract_dir = tmp_path / "extracted"
+        extract_dir.mkdir()
+
+        with tarfile.open(archive_path, "r:gz") as tar:
+            tar.extractall(extract_dir)
+
+        manifest_yaml_path = extract_dir / "source" / "COLDSTORE" / "MANIFEST.yaml"
+        assert manifest_yaml_path.exists()
+
+        # Verify it's valid YAML and can be parsed
+        from coldstore.core.manifest import ColdstoreManifest
+
+        manifest = ColdstoreManifest.read_yaml(manifest_yaml_path)
+        assert manifest.manifest_version == "1.0"
+        assert manifest.archive.filename == "test.tar.gz"
+
+    def test_manifest_with_git_repository(self, tmp_path):
+        """Test manifest generation in a git repository."""
+        import subprocess
+
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file.txt").write_text("content")
+
+        # Initialize git repo
+        subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=source,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=source,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(["git", "add", "."], cwd=source, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Initial commit"],
+            cwd=source,
+            check=True,
+            capture_output=True,
+        )
+
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path, generate_manifest=True)
+
+        result = builder.create_archive(scanner)
+
+        # Read manifest
+        from coldstore.core.manifest import ColdstoreManifest
+
+        manifest = ColdstoreManifest.read_json(result["manifest_json_path"])
+
+        # Verify git metadata was collected
+        assert manifest.git.present is True
+        assert manifest.git.commit is not None
+        assert len(manifest.git.commit) == 40  # SHA1 hash length
+        assert manifest.git.dirty is False  # Clean repo

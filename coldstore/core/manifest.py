@@ -214,9 +214,6 @@ class ColdstoreManifest(BaseModel):
         data = self.model_dump(exclude_none=True, mode="json")
         return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
-    # TODO: Add write_to_file(path) method for disk I/O
-    # TODO: Add add_file(file_entry) helper method
-
     def to_json(self, indent: int = 2) -> str:
         """
         Serialize manifest to JSON string.
@@ -243,8 +240,6 @@ class ColdstoreManifest(BaseModel):
         data = yaml.safe_load(yaml_str)
         return cls(**data)
 
-    # TODO: Add read_from_file(path) classmethod for disk I/O
-
     @classmethod
     def from_json(cls, json_str: str) -> "ColdstoreManifest":
         """
@@ -257,6 +252,54 @@ class ColdstoreManifest(BaseModel):
             ColdstoreManifest instance
         """
         return cls.model_validate_json(json_str)
+
+    def write_yaml(self, path: Path) -> None:
+        """
+        Write manifest to YAML file.
+
+        Args:
+            path: Path to write YAML file
+        """
+        yaml_content = self.to_yaml()
+        path.write_text(yaml_content, encoding="utf-8")
+
+    def write_json(self, path: Path) -> None:
+        """
+        Write manifest to JSON file.
+
+        Args:
+            path: Path to write JSON file
+        """
+        json_content = self.to_json()
+        path.write_text(json_content, encoding="utf-8")
+
+    @classmethod
+    def read_yaml(cls, path: Path) -> "ColdstoreManifest":
+        """
+        Read manifest from YAML file.
+
+        Args:
+            path: Path to YAML file
+
+        Returns:
+            ColdstoreManifest instance
+        """
+        yaml_content = path.read_text(encoding="utf-8")
+        return cls.from_yaml(yaml_content)
+
+    @classmethod
+    def read_json(cls, path: Path) -> "ColdstoreManifest":
+        """
+        Read manifest from JSON file.
+
+        Args:
+            path: Path to JSON file
+
+        Returns:
+            ColdstoreManifest instance
+        """
+        json_content = path.read_text(encoding="utf-8")
+        return cls.from_json(json_content)
 
 
 # FILELIST.csv.gz schema constants
@@ -434,3 +477,47 @@ def read_filelist_csv(csv_path: Path) -> list[dict]:
             entries.append(entry)
 
     return entries
+
+
+def generate_archive_id(timestamp_utc: str) -> str:
+    """
+    Generate unique archive ID from timestamp.
+
+    Format: YYYY-MM-DD_HH-MM-SS_XXXXXX (timestamp + 6 random hex chars)
+
+    Args:
+        timestamp_utc: ISO-8601 UTC timestamp
+
+    Returns:
+        Archive ID string
+    """
+    import random
+
+    # Convert ISO timestamp to coldstore ID format
+    # "2025-09-28T22:15:03Z" -> "2025-09-28_22-15-03"
+    timestamp_part = timestamp_utc.replace("T", "_").replace(":", "-").rstrip("Z")
+
+    # Add 6 random hex characters for uniqueness
+    random_part = "".join(random.choices("0123456789abcdef", k=6))
+
+    return f"{timestamp_part}_{random_part}"
+
+
+def write_sha256_file(archive_path: Path, sha256_hash: str) -> Path:
+    """
+    Write .sha256 checksum file alongside archive.
+
+    Format matches sha256sum output: "<hash>  <filename>"
+
+    Args:
+        archive_path: Path to archive file
+        sha256_hash: SHA256 hash (hex string)
+
+    Returns:
+        Path to created .sha256 file
+    """
+    sha256_path = archive_path.parent / f"{archive_path.name}.sha256"
+    # Format: hash + two spaces + filename (sha256sum format)
+    content = f"{sha256_hash}  {archive_path.name}\n"
+    sha256_path.write_text(content, encoding="utf-8")
+    return sha256_path
