@@ -1,10 +1,11 @@
 """Tests for file system scanner."""
 
-import pytest
 from pathlib import Path
 
-from coldstore.core.scanner import DEFAULT_VCS_DIRS, FileScanner, scan_directory
+import pytest
+
 from coldstore.core.manifest import FileEntry, FileType
+from coldstore.core.scanner import DEFAULT_VCS_DIRS, FileScanner, scan_directory
 
 
 class TestFileScannerBasics:
@@ -607,14 +608,14 @@ class TestScannerManifestIntegration:
     def test_manifest_with_scanned_files(self, tmp_path):
         """Test creating complete manifest from scanned files."""
         from coldstore.core.manifest import (
+            ArchiveMetadata,
             ColdstoreManifest,
-            SourceMetadata,
             EnvironmentMetadata,
+            GitMetadata,
+            MemberCount,
+            SourceMetadata,
             SystemMetadata,
             ToolsMetadata,
-            GitMetadata,
-            ArchiveMetadata,
-            MemberCount,
         )
 
         # Create test structure
@@ -838,3 +839,102 @@ class TestSHA256Hashing:
         hash2 = scanner._compute_file_hash(file2)
 
         assert hash1 == hash2
+
+    def test_hash_logs_file_not_found_error(self, tmp_path, caplog):
+        """Test that FileNotFoundError is logged appropriately."""
+        import logging
+
+        caplog.set_level(logging.WARNING)
+
+        nonexistent = tmp_path / "nonexistent.txt"
+        scanner = FileScanner(tmp_path)
+
+        result = scanner._compute_file_hash(nonexistent)
+
+        assert result is None
+        assert "Cannot hash file (not found)" in caplog.text
+        assert str(nonexistent) in caplog.text
+
+    def test_hash_logs_permission_error(self, tmp_path, caplog):
+        """Test that PermissionError is logged appropriately."""
+        import logging
+        import os
+        import stat
+
+        caplog.set_level(logging.WARNING)
+
+        # Create file and remove read permissions
+        restricted = tmp_path / "restricted.txt"
+        restricted.write_text("secret")
+        os.chmod(restricted, 0o000)  # No permissions
+
+        scanner = FileScanner(tmp_path)
+
+        try:
+            result = scanner._compute_file_hash(restricted)
+
+            assert result is None
+            assert "Cannot hash file (permission denied)" in caplog.text
+            assert str(restricted) in caplog.text
+        finally:
+            # Restore permissions for cleanup
+            os.chmod(restricted, stat.S_IRUSR | stat.S_IWUSR)
+
+    def test_hash_progress_callback(self, tmp_path):
+        """Test that progress callback is invoked during hashing."""
+        file_path = tmp_path / "test.bin"
+        # Create 100KB file
+        file_path.write_bytes(b"X" * (100 * 1024))
+
+        progress_calls = []
+
+        def callback(bytes_read, total_size):
+            progress_calls.append((bytes_read, total_size))
+
+        scanner = FileScanner(tmp_path)
+        sha256 = scanner._compute_file_hash(file_path, progress_callback=callback)
+
+        assert sha256 is not None
+        # Should have at least 2 progress calls (64KB + 36KB chunks)
+        assert len(progress_calls) >= 2
+        # Final call should have bytes_read == total_size
+        assert progress_calls[-1][0] == progress_calls[-1][1]
+        # All calls should report same total size
+        assert all(total == progress_calls[0][1] for _, total in progress_calls)
+
+    def test_hash_progress_callback_not_called_without_callback(self, tmp_path):
+        """Test that stat() is not called when no callback provided (optimization)."""
+        file_path = tmp_path / "test.txt"
+        file_path.write_text("test")
+
+        scanner = FileScanner(tmp_path)
+        # Should not raise any errors
+        sha256 = scanner._compute_file_hash(file_path, progress_callback=None)
+
+        assert sha256 is not None
+
+    def test_hash_specific_io_error_logged(self, tmp_path, caplog, monkeypatch):
+        """Test that OSError (generic I/O error) is logged with error details."""
+        import logging
+
+        caplog.set_level(logging.WARNING)
+
+        file_path = tmp_path / "test.txt"
+        file_path.write_text("content")
+
+        # Mock open() to raise OSError
+        original_open = open
+
+        def mock_open(*args, **kwargs):
+            if str(file_path) in str(args):
+                raise OSError("Simulated I/O error")
+            return original_open(*args, **kwargs)
+
+        monkeypatch.setattr("builtins.open", mock_open)
+
+        scanner = FileScanner(tmp_path)
+        result = scanner._compute_file_hash(file_path)
+
+        assert result is None
+        assert "Cannot hash file (I/O error)" in caplog.text
+        assert "Simulated I/O error" in caplog.text

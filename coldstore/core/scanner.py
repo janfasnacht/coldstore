@@ -2,12 +2,15 @@
 
 import fnmatch
 import hashlib
+import logging
 import os
 import stat as stat_module
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Default VCS directories to exclude
 DEFAULT_VCS_DIRS = {".git", ".hg", ".svn", ".bzr", "CVS"}
@@ -219,28 +222,51 @@ class FileScanner:
         return total_size
 
     def _compute_file_hash(
-        self, path: Path, chunk_size: int = DEFAULT_HASH_CHUNK_SIZE
+        self,
+        path: Path,
+        chunk_size: int = DEFAULT_HASH_CHUNK_SIZE,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> Optional[str]:
         """
         Compute SHA256 hash of a file using chunked reads.
 
         Uses chunked reading for memory efficiency, suitable for large files.
+        Optionally reports progress for large files.
 
         Args:
             path: Path to file to hash
             chunk_size: Size of chunks to read (default: 64KB)
+            progress_callback: Optional callback(bytes_read, total_size) for progress
 
         Returns:
             Lowercase hexadecimal SHA256 hash, or None if file cannot be read
+
+        Raises:
+            None - returns None on errors and logs the issue
         """
         try:
+            # Get file size for progress reporting
+            file_size = path.stat().st_size if progress_callback else 0
+            bytes_read = 0
+
             sha256_hash = hashlib.sha256()
             with open(path, "rb") as f:
                 while chunk := f.read(chunk_size):
                     sha256_hash.update(chunk)
+                    bytes_read += len(chunk)
+                    if progress_callback:
+                        progress_callback(bytes_read, file_size)
+
             return sha256_hash.hexdigest()
-        except OSError:
-            # Return None if file cannot be read
+
+        except FileNotFoundError:
+            logger.warning("Cannot hash file (not found): %s", path)
+            return None
+        except PermissionError:
+            logger.warning("Cannot hash file (permission denied): %s", path)
+            return None
+        except OSError as e:
+            logger.warning("Cannot hash file (I/O error): %s - %s", path, e)
             return None
 
     def collect_file_metadata(self, path: Path, compute_hash: bool = True) -> dict:
