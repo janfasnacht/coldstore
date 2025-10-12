@@ -1,6 +1,7 @@
 """File system scanner with exclusion processing for coldstore."""
 
 import fnmatch
+import hashlib
 import os
 import stat as stat_module
 from collections.abc import Iterator
@@ -10,6 +11,9 @@ from typing import Optional
 
 # Default VCS directories to exclude
 DEFAULT_VCS_DIRS = {".git", ".hg", ".svn", ".bzr", "CVS"}
+
+# Default chunk size for file hashing (64KB)
+DEFAULT_HASH_CHUNK_SIZE = 65536
 
 
 class FileScanner:
@@ -214,15 +218,42 @@ class FileScanner:
 
         return total_size
 
-    def collect_file_metadata(self, path: Path) -> dict:
+    def _compute_file_hash(
+        self, path: Path, chunk_size: int = DEFAULT_HASH_CHUNK_SIZE
+    ) -> Optional[str]:
+        """
+        Compute SHA256 hash of a file using chunked reads.
+
+        Uses chunked reading for memory efficiency, suitable for large files.
+
+        Args:
+            path: Path to file to hash
+            chunk_size: Size of chunks to read (default: 64KB)
+
+        Returns:
+            Lowercase hexadecimal SHA256 hash, or None if file cannot be read
+        """
+        try:
+            sha256_hash = hashlib.sha256()
+            with open(path, "rb") as f:
+                while chunk := f.read(chunk_size):
+                    sha256_hash.update(chunk)
+            return sha256_hash.hexdigest()
+        except OSError:
+            # Return None if file cannot be read
+            return None
+
+    def collect_file_metadata(self, path: Path, compute_hash: bool = True) -> dict:
         """
         Collect file metadata for manifest generation.
 
         Collects all metadata needed for FileEntry in manifest schema,
         ready to be passed to FileEntry constructor (issue #12).
+        Computes SHA256 hash for regular files if compute_hash=True (issue #14).
 
         Args:
             path: Absolute path to file/directory
+            compute_hash: Whether to compute SHA256 hash for files (default: True)
 
         Returns:
             Dictionary with metadata compatible with FileEntry schema
@@ -271,12 +302,18 @@ class FileScanner:
         # File extension
         ext = path.suffix.lstrip(".") if path.suffix else ""
 
+        # Compute SHA256 hash for regular files
+        sha256 = None
+        if compute_hash and file_type == FileType.FILE:
+            sha256 = self._compute_file_hash(path)
+
         return {
             "path": str(rel_path),
             "type": file_type,
             "size": size,
             "mode": mode,
             "mtime_utc": mtime_utc,
+            "sha256": sha256,
             "link_target": link_target,
             # uid, gid, is_executable, ext are for FILELIST.csv.gz
             "_uid": uid,

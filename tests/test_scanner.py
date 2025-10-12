@@ -689,3 +689,152 @@ class TestFixtureVerification:
         # Verify content
         assert (sample_files / "file1.txt").read_text() == "Sample content 1\n"
         assert "print('hello')" in (sample_files / "file2.py").read_text()
+
+
+class TestSHA256Hashing:
+    """Test SHA256 hashing functionality (Issue #14)."""
+
+    def test_compute_file_hash_basic(self, tmp_path):
+        """Test basic SHA256 computation."""
+        file_path = tmp_path / "test.txt"
+        file_path.write_bytes(b"hello world")
+
+        scanner = FileScanner(tmp_path)
+        sha256 = scanner._compute_file_hash(file_path)
+
+        # Known SHA256 of "hello world"
+        expected = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+        assert sha256 == expected
+
+    def test_compute_file_hash_empty_file(self, tmp_path):
+        """Test SHA256 of empty file."""
+        file_path = tmp_path / "empty.txt"
+        file_path.write_bytes(b"")
+
+        scanner = FileScanner(tmp_path)
+        sha256 = scanner._compute_file_hash(file_path)
+
+        # Known SHA256 of empty file
+        expected = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        assert sha256 == expected
+
+    def test_compute_file_hash_large_file(self, tmp_path):
+        """Test SHA256 computation with chunked reading for large files."""
+        file_path = tmp_path / "large.bin"
+        # Create 1MB file
+        data = b"A" * (1024 * 1024)
+        file_path.write_bytes(data)
+
+        scanner = FileScanner(tmp_path)
+        sha256 = scanner._compute_file_hash(file_path)
+
+        # Verify it's a valid SHA256 (64 hex chars)
+        assert len(sha256) == 64
+        assert all(c in "0123456789abcdef" for c in sha256)
+
+        # Verify it matches independently computed hash
+        import hashlib
+        expected = hashlib.sha256(data).hexdigest()
+        assert sha256 == expected
+
+    def test_compute_file_hash_inaccessible_file(self, tmp_path):
+        """Test SHA256 computation handles inaccessible files gracefully."""
+        file_path = tmp_path / "nonexistent.txt"
+
+        scanner = FileScanner(tmp_path)
+        sha256 = scanner._compute_file_hash(file_path)
+
+        # Should return None for inaccessible files
+        assert sha256 is None
+
+    def test_collect_file_metadata_includes_hash(self, tmp_path):
+        """Test that collect_file_metadata includes SHA256 hash."""
+        file_path = tmp_path / "test.txt"
+        file_path.write_text("content")
+
+        scanner = FileScanner(tmp_path)
+        metadata = scanner.collect_file_metadata(file_path)
+
+        assert "sha256" in metadata
+        assert metadata["sha256"] is not None
+        assert len(metadata["sha256"]) == 64
+
+    def test_collect_file_metadata_hash_optional(self, tmp_path):
+        """Test that SHA256 computation can be disabled."""
+        file_path = tmp_path / "test.txt"
+        file_path.write_text("content")
+
+        scanner = FileScanner(tmp_path)
+        metadata = scanner.collect_file_metadata(file_path, compute_hash=False)
+
+        assert "sha256" in metadata
+        assert metadata["sha256"] is None
+
+    def test_collect_directory_metadata_no_hash(self, tmp_path):
+        """Test that directories don't get SHA256 hashes."""
+        dir_path = tmp_path / "subdir"
+        dir_path.mkdir()
+
+        scanner = FileScanner(tmp_path)
+        metadata = scanner.collect_file_metadata(dir_path)
+
+        assert "sha256" in metadata
+        assert metadata["sha256"] is None
+
+    def test_collect_symlink_metadata_no_hash(self, tmp_path):
+        """Test that symlinks don't get SHA256 hashes."""
+        target = tmp_path / "target.txt"
+        target.write_text("target")
+        link = tmp_path / "link.txt"
+        link.symlink_to(target)
+
+        scanner = FileScanner(tmp_path)
+        metadata = scanner.collect_file_metadata(link)
+
+        assert "sha256" in metadata
+        assert metadata["sha256"] is None
+
+    def test_hash_computation_performance(self, tmp_path):
+        """Test that hash computation is reasonably fast for moderately large files."""
+        import time
+
+        file_path = tmp_path / "medium.bin"
+        # Create 10MB file
+        file_path.write_bytes(b"B" * (10 * 1024 * 1024))
+
+        scanner = FileScanner(tmp_path)
+
+        start = time.time()
+        sha256 = scanner._compute_file_hash(file_path)
+        elapsed = time.time() - start
+
+        assert sha256 is not None
+        # Should compute 10MB in under 1 second on modern hardware
+        # (this is a reasonable performance expectation, not a strict requirement)
+        assert elapsed < 2.0, f"Hash computation took {elapsed:.2f}s (expected < 2.0s)"
+
+    def test_hash_different_for_different_content(self, tmp_path):
+        """Test that different content produces different hashes."""
+        file1 = tmp_path / "file1.txt"
+        file2 = tmp_path / "file2.txt"
+        file1.write_text("content1")
+        file2.write_text("content2")
+
+        scanner = FileScanner(tmp_path)
+        hash1 = scanner._compute_file_hash(file1)
+        hash2 = scanner._compute_file_hash(file2)
+
+        assert hash1 != hash2
+
+    def test_hash_same_for_same_content(self, tmp_path):
+        """Test that same content produces same hash (deterministic)."""
+        file1 = tmp_path / "file1.txt"
+        file2 = tmp_path / "file2.txt"
+        file1.write_text("same content")
+        file2.write_text("same content")
+
+        scanner = FileScanner(tmp_path)
+        hash1 = scanner._compute_file_hash(file1)
+        hash2 = scanner._compute_file_hash(file2)
+
+        assert hash1 == hash2
