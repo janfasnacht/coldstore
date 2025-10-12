@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "coldstore"
-version = "0.1.0"
-description = "Cold storage archiving utility for long-term preservation with metadata"
+version = "2.0.0-dev"
+description = "Event-driven project archival system with comprehensive metadata and verification"
 authors = ["janfasnacht <jan.fasnacht@gmail.com>"]
 readme = "README.md"
 packages = [{include = "coldstore"}]
@@ -9,6 +9,9 @@ packages = [{include = "coldstore"}]
 [tool.poetry.dependencies]
 python = "^3.9"
 click = "^8.0"
+typer = "^0.9.0"
+pyyaml = "^6.0"
+pydantic = "^2.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
