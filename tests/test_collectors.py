@@ -199,6 +199,129 @@ class TestGitMetadataCollector:
         assert metadata.present is True
         assert metadata.remote_origin_url == "https://github.com/user/repo.git"
 
+    def test_git_repo_from_subdirectory(self, tmp_path):
+        """Test collecting metadata when source_path is git repo subdirectory."""
+        # Create git repo
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        subprocess.run(
+            ["git", "init"], cwd=repo_root, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+        )
+
+        # Create subdirectory with content
+        subdir = repo_root / "data"
+        subdir.mkdir()
+        (subdir / "file.txt").write_text("data")
+
+        # Create initial commit
+        subprocess.run(
+            ["git", "add", "."], cwd=repo_root, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "Initial commit"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+        )
+
+        # Collect metadata from subdirectory (not repo root)
+        collector = GitMetadataCollector(subdir)
+        metadata = collector.collect()
+
+        # Should still detect git repo
+        assert metadata.present is True
+        assert metadata.commit is not None
+        assert len(metadata.commit) == 40  # Full SHA1 hash
+        assert (
+            metadata.branch == "main" or metadata.branch == "master"
+        )  # Depends on git config
+        assert metadata.dirty is False
+
+    def test_git_repo_detached_head(self, tmp_path):
+        """Test collecting metadata when repo is in detached HEAD state."""
+        # Initialize git repo
+        subprocess.run(
+            ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+        )
+
+        # Create first commit
+        (tmp_path / "test.txt").write_text("test")
+        subprocess.run(
+            ["git", "add", "."], cwd=tmp_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "First commit"],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+        )
+
+        # Create second commit
+        (tmp_path / "test2.txt").write_text("test2")
+        subprocess.run(
+            ["git", "add", "."], cwd=tmp_path, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "Second commit"],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+        )
+
+        # Get first commit hash to checkout
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD~1"],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        first_commit_hash = result.stdout.strip()
+
+        # Checkout first commit (detached HEAD)
+        subprocess.run(
+            ["git", "checkout", first_commit_hash],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+        )
+
+        # Collect metadata
+        collector = GitMetadataCollector(tmp_path)
+        metadata = collector.collect()
+
+        # Should still detect git repo with commit, but branch should be None
+        assert metadata.present is True
+        assert metadata.commit is not None
+        assert len(metadata.commit) == 40  # Full SHA1 hash
+        assert metadata.commit == first_commit_hash
+        assert metadata.branch is None  # Detached HEAD has no branch
+        assert metadata.dirty is False
+
     def test_convenience_function(self, tmp_path):
         """Test convenience function for collecting git metadata."""
         metadata = collect_git_metadata(tmp_path)

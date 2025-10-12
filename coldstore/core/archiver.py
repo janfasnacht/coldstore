@@ -3,6 +3,7 @@
 import hashlib
 import logging
 import tarfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
@@ -51,6 +52,7 @@ class ArchiveBuilder:
         self,
         scanner: FileScanner,
         arcname_root: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> dict:
         """
         Create tar.gz archive from scanned files in deterministic order.
@@ -61,6 +63,8 @@ class ArchiveBuilder:
         Args:
             scanner: FileScanner instance to get files from
             arcname_root: Root name for files in archive (default: source dir name)
+            progress_callback: Optional callback(items_processed, total_items) called
+                after each file/directory is added to archive
 
         Returns:
             Dictionary with archive metadata:
@@ -77,6 +81,12 @@ class ArchiveBuilder:
         dirs_added = 0
 
         logger.info("Creating archive: %s", self.output_path)
+
+        # Count total items for progress reporting
+        total_items = 0
+        if progress_callback:
+            counts = scanner.count_files()
+            total_items = counts["total"]
 
         # Create SHA256 hasher if requested
         sha256_hasher = hashlib.sha256() if self.compute_sha256 else None
@@ -118,6 +128,11 @@ class ArchiveBuilder:
                                 dirs_added += 1
                             else:
                                 files_added += 1
+
+                            # Report progress after each item added
+                            if progress_callback:
+                                items_processed = files_added + dirs_added
+                                progress_callback(items_processed, total_items)
 
                         except OSError as e:
                             logger.warning(
@@ -163,7 +178,23 @@ class _HashingFileWrapper:
     File wrapper that computes SHA256 hash while writing.
 
     Wraps a file object and updates a SHA256 hasher with all bytes written.
-    Transparent to the tar writing process.
+    Designed specifically for use with tarfile.open() in write mode.
+
+    LIMITATIONS:
+        This is a minimal file-like wrapper that only implements the methods
+        required by tarfile for sequential write operations:
+        - write(data): Write bytes and update hash
+        - close(): Close wrapped file
+        - __enter__/__exit__: Context manager support
+
+        The following file-like methods are NOT implemented:
+        - read(), readline(), readlines() - Not needed for write-only mode
+        - seek(), tell() - Not needed for sequential writes
+        - flush() - Delegated to underlying file object
+        - fileno() - Not needed for tarfile operations
+
+        This wrapper is sufficient for tarfile.open(mode="w:gz") but may not
+        work with other file operations that require full file-like interface.
     """
 
     def __init__(self, file_obj, sha256_hasher):
@@ -171,7 +202,7 @@ class _HashingFileWrapper:
         Initialize hashing file wrapper.
 
         Args:
-            file_obj: File object to wrap (must support write())
+            file_obj: File object to wrap (must support write() and close())
             sha256_hasher: hashlib.sha256() instance to update
         """
         self.file_obj = file_obj

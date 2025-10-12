@@ -150,7 +150,9 @@ class SystemMetadataCollector:
                 os_version=os_version,
                 hostname=hostname,
             )
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
+            # OSError: System-related errors (e.g., platform detection failures)
+            # RuntimeError: Unexpected platform module errors
             logger.error("Failed to collect system metadata: %s", e)
             # Return fallback values
             return SystemMetadata(

@@ -85,6 +85,102 @@ class TestArchiveBuilderBasics:
             assert "custom_name/file.txt" in names
             assert "source/file.txt" not in names
 
+    def test_archive_extraction_preserves_content(self, tmp_path):
+        """Test that archived files can be extracted with original content intact."""
+        # Create source with specific content
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file1.txt").write_text("content1")
+        (source / "dir1").mkdir()
+        (source / "dir1" / "file2.txt").write_text("content2")
+        (source / "dir1" / "nested").mkdir()
+        (source / "dir1" / "nested" / "file3.txt").write_text("content3")
+
+        # Create archive
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path)
+        result = builder.create_archive(scanner)
+
+        # Verify archive was created successfully
+        assert result["files_added"] == 3
+        assert result["dirs_added"] == 2
+
+        # Extract to different location
+        extract_dir = tmp_path / "extracted"
+        extract_dir.mkdir()
+        with tarfile.open(archive_path, "r:gz") as tar:
+            tar.extractall(extract_dir)
+
+        # Verify extracted content matches original
+        extracted_source = extract_dir / "source"
+        assert (extracted_source / "file1.txt").read_text() == "content1"
+        assert (extracted_source / "dir1" / "file2.txt").read_text() == "content2"
+        assert (
+            extracted_source / "dir1" / "nested" / "file3.txt"
+        ).read_text() == "content3"
+
+        # Verify directory structure preserved
+        assert (extracted_source / "dir1").is_dir()
+        assert (extracted_source / "dir1" / "nested").is_dir()
+
+    def test_progress_callback_invoked(self, tmp_path):
+        """Test that progress callback is invoked during archive creation."""
+        # Create source with multiple files and directories
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file1.txt").write_text("content1")
+        (source / "file2.txt").write_text("content2")
+        (source / "dir1").mkdir()
+        (source / "dir1" / "file3.txt").write_text("content3")
+
+        # Track progress callback invocations
+        progress_calls = []
+
+        def progress_callback(items_processed: int, total_items: int):
+            progress_calls.append((items_processed, total_items))
+
+        # Create archive with progress callback
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path)
+        result = builder.create_archive(scanner, progress_callback=progress_callback)
+
+        # Verify archive created successfully
+        assert result["files_added"] == 3
+        assert result["dirs_added"] == 1
+
+        # Verify progress callback was invoked
+        assert len(progress_calls) > 0
+        # Should have 4 calls (3 files + 1 dir)
+        assert len(progress_calls) == 4
+
+        # Verify progress calls are sequential
+        for i, (items_processed, total_items) in enumerate(progress_calls):
+            assert items_processed == i + 1  # 1-indexed
+            assert total_items == 4  # Total items
+
+        # Final callback should report all items processed
+        final_processed, final_total = progress_calls[-1]
+        assert final_processed == final_total
+        assert final_processed == 4
+
+    def test_progress_callback_not_invoked_when_none(self, tmp_path):
+        """Test that progress callback is not invoked when None."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file.txt").write_text("content")
+
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path)
+
+        # Create archive without progress callback (default)
+        result = builder.create_archive(scanner)
+
+        # Should succeed without errors
+        assert result["files_added"] == 1
+
 
 class TestCompressionLevels:
     """Test different compression levels."""
@@ -118,6 +214,41 @@ class TestCompressionLevels:
 
         # Level 9 should produce smaller archive (highly compressible data)
         assert result["size_bytes"] < 1000  # Very compressible
+
+    def test_compression_levels_differ(self, tmp_path):
+        """Test that different compression levels produce different sized archives."""
+        # Create source with highly compressible data
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "data.txt").write_bytes(b"A" * 50000)  # 50KB of same byte
+
+        # Create archives with different compression levels
+        archive_0 = tmp_path / "level_0.tar.gz"
+        scanner_0 = FileScanner(source)
+        builder_0 = ArchiveBuilder(archive_0, compression_level=0)
+        result_0 = builder_0.create_archive(scanner_0)
+
+        archive_6 = tmp_path / "level_6.tar.gz"
+        scanner_6 = FileScanner(source)
+        builder_6 = ArchiveBuilder(archive_6, compression_level=6)
+        result_6 = builder_6.create_archive(scanner_6)
+
+        archive_9 = tmp_path / "level_9.tar.gz"
+        scanner_9 = FileScanner(source)
+        builder_9 = ArchiveBuilder(archive_9, compression_level=9)
+        result_9 = builder_9.create_archive(scanner_9)
+
+        # Verify compression levels affect size as expected
+        # Level 0 (no compression) should be largest
+        assert result_0["size_bytes"] > result_6["size_bytes"]
+        assert result_0["size_bytes"] > result_9["size_bytes"]
+
+        # Level 9 (max compression) should be smallest
+        assert result_9["size_bytes"] < result_6["size_bytes"]
+        assert result_9["size_bytes"] < result_0["size_bytes"]
+
+        # Verify actual compression happened (level 9 should compress 50KB to < 10KB)
+        assert result_9["size_bytes"] < 10000  # Good compression
 
     def test_invalid_compression_level(self, tmp_path):
         """Test that invalid compression levels are rejected."""
