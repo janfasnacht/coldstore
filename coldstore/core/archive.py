@@ -41,7 +41,9 @@ def setup_archive_paths(
     return source_path, source_name, base_name, archive_path, sha256_path, readme_path
 
 
-def collect_metadata_and_warn(source_path: Path, split_size: Optional[str] = None) -> dict:
+def collect_metadata_and_warn(
+    source_path: Path, split_size: Optional[str] = None
+) -> dict:
     """Collect metadata and warn about large archives."""
     print(f"📊 Collecting metadata for {source_path}...")
     meta = get_metadata(source_path)
