@@ -527,3 +527,216 @@ class TestIntegrationWithScanner:
 
         # Should be in lexicographic order
         assert names == sorted(names)
+
+
+class TestFILELISTGeneration:
+    """Test FILELIST.csv.gz generation in archives."""
+
+    def test_filelist_generated_when_enabled(self, tmp_path):
+        """Test that FILELIST.csv.gz is generated when enabled."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file1.txt").write_text("content1")
+        (source / "file2.txt").write_text("content2")
+
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path, generate_filelist=True)
+
+        result = builder.create_archive(scanner)
+
+        # Verify FILELIST metadata in result
+        assert "filelist_sha256" in result
+        assert result["filelist_sha256"] is not None
+        assert len(result["filelist_sha256"]) == 64
+        assert "file_metadata" in result
+        assert len(result["file_metadata"]) == 2
+
+        # Verify FILELIST.csv.gz exists in archive
+        with tarfile.open(archive_path, "r:gz") as tar:
+            names = [m.name for m in tar.getmembers()]
+            assert "source/COLDSTORE/FILELIST.csv.gz" in names
+
+    def test_filelist_not_generated_when_disabled(self, tmp_path):
+        """Test that FILELIST.csv.gz is NOT generated when disabled."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file1.txt").write_text("content1")
+
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path, generate_filelist=False)
+
+        result = builder.create_archive(scanner)
+
+        # Verify no FILELIST metadata
+        assert "filelist_sha256" not in result or result["filelist_sha256"] is None
+        assert "file_metadata" not in result or result["file_metadata"] == []
+
+        # Verify no COLDSTORE directory in archive
+        with tarfile.open(archive_path, "r:gz") as tar:
+            names = [m.name for m in tar.getmembers()]
+            assert not any("COLDSTORE" in name for name in names)
+
+    def test_filelist_deterministic_with_fixed_mtimes(self, tmp_path):
+        """Test that FILELIST CSV is deterministic when file mtimes are identical.
+
+        Note: The archive itself may still differ due to tar format metadata,
+        but the FILELIST.csv.gz content should be deterministic.
+        """
+        import os
+
+        # Create source with files
+        source = tmp_path / "source"
+        source.mkdir()
+
+        file1 = source / "aaa.txt"
+        file1.write_text("content1")
+        file2 = source / "zzz.txt"
+        file2.write_text("content2")
+
+        # Set fixed mtime on all files AND directories (2024-01-01 00:00:00)
+        fixed_time = 1704067200.0
+        os.utime(file1, (fixed_time, fixed_time))
+        os.utime(file2, (fixed_time, fixed_time))
+        os.utime(source, (fixed_time, fixed_time))
+
+        # Create first archive with FILELIST
+        archive1 = tmp_path / "archive1.tar.gz"
+        scanner1 = FileScanner(source)
+        builder1 = ArchiveBuilder(archive1, compression_level=6, generate_filelist=True)
+        result1 = builder1.create_archive(scanner1)
+
+        # Create second archive with FILELIST
+        archive2 = tmp_path / "archive2.tar.gz"
+        scanner2 = FileScanner(source)
+        builder2 = ArchiveBuilder(archive2, compression_level=6, generate_filelist=True)
+        result2 = builder2.create_archive(scanner2)
+
+        # With identical mtimes, FILELIST hash should be deterministic
+        # (The archive hash may differ due to tar format overhead)
+        assert result1["filelist_sha256"] == result2["filelist_sha256"]
+
+    def test_filelist_changes_with_different_mtimes(self, tmp_path):
+        """Test that FILELIST changes when file mtimes differ (correct behavior)."""
+        import os
+
+        # Create source
+        source = tmp_path / "source"
+        source.mkdir()
+
+        file1 = source / "file.txt"
+        file1.write_text("content")
+
+        # Set first mtime
+        time1 = 1704067200.0  # 2024-01-01 00:00:00
+        os.utime(file1, (time1, time1))
+
+        # Create first archive
+        archive1 = tmp_path / "archive1.tar.gz"
+        scanner1 = FileScanner(source)
+        builder1 = ArchiveBuilder(archive1, compression_level=6, generate_filelist=True)
+        result1 = builder1.create_archive(scanner1)
+
+        # Change mtime
+        time2 = 1704153600.0  # 2024-01-02 00:00:00
+        os.utime(file1, (time2, time2))
+
+        # Create second archive
+        archive2 = tmp_path / "archive2.tar.gz"
+        scanner2 = FileScanner(source)
+        builder2 = ArchiveBuilder(archive2, compression_level=6, generate_filelist=True)
+        result2 = builder2.create_archive(scanner2)
+
+        # Filelists should differ (different mtimes = different metadata)
+        assert result1["filelist_sha256"] != result2["filelist_sha256"]
+        # Archive hashes will also differ
+        assert result1["sha256"] != result2["sha256"]
+
+    def test_filelist_contains_all_files(self, tmp_path):
+        """Test that FILELIST contains metadata for all archived files."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file1.txt").write_text("content1")
+        (source / "dir1").mkdir()
+        (source / "dir1" / "file2.txt").write_text("content2")
+        (source / "file3.py").write_text("code")
+
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path, generate_filelist=True)
+
+        result = builder.create_archive(scanner)
+
+        # Should have metadata for all files and directories
+        assert len(result["file_metadata"]) == 4  # 3 files + 1 dir
+
+        # Verify metadata has required fields
+        for metadata in result["file_metadata"]:
+            assert "path" in metadata
+            assert "type" in metadata
+            assert "mode" in metadata
+            assert "mtime_utc" in metadata
+
+    def test_filelist_can_be_extracted_and_read(self, tmp_path):
+        """Test that FILELIST.csv.gz can be extracted and read."""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file1.txt").write_text("content1")
+        (source / "file2.txt").write_text("content2")
+
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path, generate_filelist=True)
+
+        builder.create_archive(scanner)
+
+        # Extract FILELIST.csv.gz from archive
+        extract_dir = tmp_path / "extracted"
+        extract_dir.mkdir()
+
+        with tarfile.open(archive_path, "r:gz") as tar:
+            tar.extractall(extract_dir)
+
+        filelist_path = extract_dir / "source" / "COLDSTORE" / "FILELIST.csv.gz"
+        assert filelist_path.exists()
+
+        # Read and verify FILELIST
+        from coldstore.core.manifest import read_filelist_csv
+
+        entries = read_filelist_csv(filelist_path)
+        assert len(entries) == 2
+        assert entries[0]["relpath"] == "file1.txt"
+        assert entries[1]["relpath"] == "file2.txt"
+
+    def test_filelist_hash_matches_content(self, tmp_path):
+        """Test that filelist_sha256 matches actual FILELIST.csv.gz hash."""
+        import hashlib
+
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file.txt").write_text("content")
+
+        archive_path = tmp_path / "test.tar.gz"
+        scanner = FileScanner(source)
+        builder = ArchiveBuilder(archive_path, generate_filelist=True)
+
+        result = builder.create_archive(scanner)
+
+        # Extract FILELIST.csv.gz
+        extract_dir = tmp_path / "extracted"
+        extract_dir.mkdir()
+
+        with tarfile.open(archive_path, "r:gz") as tar:
+            tar.extractall(extract_dir)
+
+        filelist_path = extract_dir / "source" / "COLDSTORE" / "FILELIST.csv.gz"
+
+        # Compute independent hash
+        hasher = hashlib.sha256()
+        with open(filelist_path, "rb") as f:
+            hasher.update(f.read())
+        independent_hash = hasher.hexdigest()
+
+        # Should match reported hash
+        assert result["filelist_sha256"] == independent_hash

@@ -1,7 +1,11 @@
 """Manifest schema definitions and serialization for coldstore archives."""
 
+import csv
+import gzip
+import hashlib
 import re
 from enum import Enum
+from pathlib import Path
 from typing import Optional
 
 import yaml
@@ -284,5 +288,149 @@ FILELIST_DTYPES = {
     "ext": str,
 }
 
-# TODO: Add write_filelist_csv(path, file_entries) helper function
-# TODO: Add read_filelist_csv(path) -> list[dict] helper function
+def write_filelist_csv(
+    output_path: Path,
+    file_entries: list[FileEntry | dict],
+    compression_level: int = 6,
+) -> str:
+    """
+    Write file entries to gzipped CSV file with deterministic ordering.
+
+    Args:
+        output_path: Path to write FILELIST.csv.gz
+        file_entries: List of FileEntry objects or metadata dicts from scanner
+        compression_level: Gzip compression level (1-9)
+
+    Returns:
+        SHA256 hash of the FILELIST.csv.gz file (hex string)
+
+    Notes:
+        - Entries are sorted lexicographically by path for determinism
+        - CSV follows FILELIST_COLUMNS schema
+        - Empty/None values written as empty strings
+        - All paths use POSIX separators (/)
+        - Accepts either FileEntry objects or dicts from scanner.collect_file_metadata()
+    """
+    # Sort entries lexicographically for deterministic output
+    sorted_entries = sorted(
+        file_entries,
+        key=lambda e: e.path if isinstance(e, FileEntry) else e["path"]
+    )
+
+    # Write CSV to gzipped file
+    # Use GzipFile with mtime=0 for deterministic output (no timestamp in header)
+    # filename="" to avoid embedding filename in gzip header (for determinism)
+    import io
+
+    with open(output_path, "wb") as f:
+        with gzip.GzipFile(
+            fileobj=f,
+            mode="wb",
+            compresslevel=compression_level,
+            mtime=0,
+            filename="",
+        ) as gz:
+            # Wrap in TextIOWrapper for text mode
+            with io.TextIOWrapper(gz, encoding="utf-8", newline="") as text_gz:
+                writer = csv.DictWriter(text_gz, fieldnames=FILELIST_COLUMNS)
+                writer.writeheader()
+
+                for entry in sorted_entries:
+                    # Handle both FileEntry objects and dicts from scanner
+                    if isinstance(entry, FileEntry):
+                        # Extract extension from path
+                        ext = (
+                            Path(entry.path).suffix.lstrip(".")
+                            if Path(entry.path).suffix
+                            else ""
+                        )
+
+                        # Determine if executable (check user execute bit in mode)
+                        mode_int = int(entry.mode, 8)  # Convert octal string to int
+                        is_executable = 1 if (mode_int & 0o100) else 0
+
+                        row = {
+                            "relpath": entry.path,
+                            "type": entry.type.value,
+                            "size_bytes": (
+                                entry.size if entry.size is not None else ""
+                            ),
+                            "mode_octal": entry.mode,
+                            "uid": "",  # Not available in FileEntry
+                            "gid": "",  # Not available in FileEntry
+                            "mtime_utc": entry.mtime_utc,
+                            "sha256": entry.sha256 if entry.sha256 else "",
+                            "link_target": (
+                                entry.link_target if entry.link_target else ""
+                            ),
+                            "is_executable": is_executable,
+                            "ext": ext,
+                        }
+                    else:
+                        # Dict from scanner.collect_file_metadata()
+                        row = {
+                            "relpath": entry["path"],
+                            "type": entry["type"].value,
+                            "size_bytes": (
+                                entry["size"]
+                                if entry.get("size") is not None
+                                else ""
+                            ),
+                            "mode_octal": entry["mode"],
+                            "uid": entry.get("_uid", ""),
+                            "gid": entry.get("_gid", ""),
+                            "mtime_utc": entry["mtime_utc"],
+                            "sha256": entry.get("sha256", ""),
+                            "link_target": entry.get("link_target", ""),
+                            "is_executable": 1 if entry.get("_is_executable") else 0,
+                            "ext": entry.get("_ext", ""),
+                        }
+                    writer.writerow(row)
+
+    # Compute SHA256 hash of the output file
+    hasher = hashlib.sha256()
+    with open(output_path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            hasher.update(chunk)
+
+    return hasher.hexdigest()
+
+
+def read_filelist_csv(csv_path: Path) -> list[dict]:
+    """
+    Read file entries from gzipped CSV file.
+
+    Args:
+        csv_path: Path to FILELIST.csv.gz
+
+    Returns:
+        List of file entry dictionaries with proper type conversion
+
+    Notes:
+        - Converts numeric fields to int
+        - Empty strings converted to None for optional fields
+        - All paths use POSIX separators (/)
+    """
+    entries = []
+
+    with gzip.open(csv_path, "rt", newline="") as gz:
+        reader = csv.DictReader(gz)
+
+        for row in reader:
+            # Type conversions based on FILELIST_DTYPES
+            entry = {
+                "relpath": row["relpath"],
+                "type": row["type"],
+                "size_bytes": int(row["size_bytes"]) if row["size_bytes"] else None,
+                "mode_octal": row["mode_octal"],
+                "uid": int(row["uid"]) if row["uid"] else None,
+                "gid": int(row["gid"]) if row["gid"] else None,
+                "mtime_utc": row["mtime_utc"],
+                "sha256": row["sha256"] if row["sha256"] else None,
+                "link_target": row["link_target"] if row["link_target"] else None,
+                "is_executable": int(row["is_executable"]),
+                "ext": row["ext"] if row["ext"] else None,
+            }
+            entries.append(entry)
+
+    return entries

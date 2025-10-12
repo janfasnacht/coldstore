@@ -475,3 +475,254 @@ class TestFILELISTSchemaEnhanced:
 
         for column in FILELIST_COLUMNS:
             assert column in FILELIST_DTYPES, f"Missing dtype for {column}"
+
+
+class TestFILELISTCSVGeneration:
+    """Test FILELIST.csv.gz write and read functions."""
+
+    def test_write_filelist_csv_basic(self, tmp_path):
+        """Test basic FILELIST.csv.gz writing."""
+        from coldstore.core.manifest import FileEntry, FileType, write_filelist_csv
+
+        # Create test file entries
+        entries = [
+            FileEntry(
+                path="file1.txt",
+                type=FileType.FILE,
+                size=100,
+                mode="0644",
+                mtime_utc="2025-01-01T00:00:00Z",
+                sha256="a" * 64,
+            ),
+            FileEntry(
+                path="dir1",
+                type=FileType.DIR,
+                size=None,
+                mode="0755",
+                mtime_utc="2025-01-01T00:00:00Z",
+            ),
+        ]
+
+        # Write FILELIST.csv.gz
+        output_path = tmp_path / "FILELIST.csv.gz"
+        filelist_hash = write_filelist_csv(output_path, entries)
+
+        # Verify output file exists
+        assert output_path.exists()
+
+        # Verify hash is valid SHA256
+        assert len(filelist_hash) == 64
+        assert all(c in "0123456789abcdef" for c in filelist_hash)
+
+    def test_write_filelist_csv_deterministic(self, tmp_path):
+        """Test that FILELIST.csv.gz generation is deterministic."""
+        from coldstore.core.manifest import FileEntry, FileType, write_filelist_csv
+
+        entries = [
+            FileEntry(
+                path="zzz.txt",
+                type=FileType.FILE,
+                size=100,
+                mode="0644",
+                mtime_utc="2025-01-01T00:00:00Z",
+                sha256="a" * 64,
+            ),
+            FileEntry(
+                path="aaa.txt",
+                type=FileType.FILE,
+                size=200,
+                mode="0644",
+                mtime_utc="2025-01-01T00:00:00Z",
+                sha256="b" * 64,
+            ),
+        ]
+
+        # Write twice
+        output1 = tmp_path / "filelist1.csv.gz"
+        output2 = tmp_path / "filelist2.csv.gz"
+
+        hash1 = write_filelist_csv(output1, entries)
+        hash2 = write_filelist_csv(output2, entries)
+
+        # Hashes should match (deterministic)
+        assert hash1 == hash2
+
+        # File sizes should match
+        assert output1.stat().st_size == output2.stat().st_size
+
+    def test_write_filelist_csv_sorts_entries(self, tmp_path):
+        """Test that entries are sorted lexicographically."""
+        from coldstore.core.manifest import (
+            FileEntry,
+            FileType,
+            read_filelist_csv,
+            write_filelist_csv,
+        )
+
+        # Create entries in non-alphabetical order
+        entries = [
+            FileEntry(
+                path="zzz.txt",
+                type=FileType.FILE,
+                size=100,
+                mode="0644",
+                mtime_utc="2025-01-01T00:00:00Z",
+                sha256="a" * 64,
+            ),
+            FileEntry(
+                path="aaa.txt",
+                type=FileType.FILE,
+                size=200,
+                mode="0644",
+                mtime_utc="2025-01-01T00:00:00Z",
+                sha256="b" * 64,
+            ),
+            FileEntry(
+                path="mmm.txt",
+                type=FileType.FILE,
+                size=300,
+                mode="0644",
+                mtime_utc="2025-01-01T00:00:00Z",
+                sha256="c" * 64,
+            ),
+        ]
+
+        output_path = tmp_path / "FILELIST.csv.gz"
+        write_filelist_csv(output_path, entries)
+
+        # Read back and verify order
+        read_entries = read_filelist_csv(output_path)
+        paths = [e["relpath"] for e in read_entries]
+
+        # Should be in alphabetical order
+        assert paths == ["aaa.txt", "mmm.txt", "zzz.txt"]
+
+    def test_read_filelist_csv_roundtrip(self, tmp_path):
+        """Test that read/write roundtrip preserves data."""
+        from coldstore.core.manifest import (
+            FileEntry,
+            FileType,
+            read_filelist_csv,
+            write_filelist_csv,
+        )
+
+        entries = [
+            FileEntry(
+                path="file1.py",
+                type=FileType.FILE,
+                size=1024,
+                mode="0755",
+                mtime_utc="2025-01-01T10:00:00Z",
+                sha256="e" * 64,
+            ),
+            FileEntry(
+                path="dir1",
+                type=FileType.DIR,
+                size=None,
+                mode="0755",
+                mtime_utc="2025-01-01T11:00:00Z",
+            ),
+        ]
+
+        output_path = tmp_path / "FILELIST.csv.gz"
+        write_filelist_csv(output_path, entries)
+
+        # Read back
+        read_entries = read_filelist_csv(output_path)
+
+        # Verify data preserved
+        assert len(read_entries) == 2
+
+        # Check first entry (directory comes first alphabetically)
+        assert read_entries[0]["relpath"] == "dir1"
+        assert read_entries[0]["type"] == "dir"
+        assert read_entries[0]["size_bytes"] is None
+        assert read_entries[0]["mode_octal"] == "0755"
+
+        # Check second entry
+        assert read_entries[1]["relpath"] == "file1.py"
+        assert read_entries[1]["type"] == "file"
+        assert read_entries[1]["size_bytes"] == 1024
+        assert read_entries[1]["sha256"] == "e" * 64
+
+    def test_write_filelist_csv_compression_levels(self, tmp_path):
+        """Test different compression levels."""
+        from coldstore.core.manifest import FileEntry, FileType, write_filelist_csv
+
+        # Create many entries for better compression testing
+        entries = [
+            FileEntry(
+                path=f"file{i:04d}.txt",
+                type=FileType.FILE,
+                size=100 + i,
+                mode="0644",
+                mtime_utc="2025-01-01T00:00:00Z",
+                sha256="a" * 64,
+            )
+            for i in range(100)
+        ]
+
+        # Write with different compression levels
+        output_0 = tmp_path / "level_0.csv.gz"
+        output_9 = tmp_path / "level_9.csv.gz"
+
+        write_filelist_csv(output_0, entries, compression_level=1)
+        write_filelist_csv(output_9, entries, compression_level=9)
+
+        # Level 9 should be smaller or equal
+        assert output_9.stat().st_size <= output_0.stat().st_size
+
+    def test_write_filelist_csv_with_scanner_metadata(self, tmp_path):
+        """Test writing FILELIST.csv.gz with metadata from scanner."""
+        from coldstore.core.manifest import FileType, write_filelist_csv
+
+        # Create metadata dict like scanner.collect_file_metadata() returns
+        metadata = [
+            {
+                "path": "file1.txt",
+                "type": FileType.FILE,
+                "size": 100,
+                "mode": "0644",
+                "mtime_utc": "2025-01-01T00:00:00Z",
+                "sha256": "a" * 64,
+                "link_target": None,
+                "_uid": 1000,
+                "_gid": 1000,
+                "_is_executable": False,
+                "_ext": "txt",
+            },
+            {
+                "path": "script.sh",
+                "type": FileType.FILE,
+                "size": 200,
+                "mode": "0755",
+                "mtime_utc": "2025-01-01T00:00:00Z",
+                "sha256": "b" * 64,
+                "link_target": None,
+                "_uid": 1000,
+                "_gid": 1000,
+                "_is_executable": True,
+                "_ext": "sh",
+            },
+        ]
+
+        output_path = tmp_path / "FILELIST.csv.gz"
+        filelist_hash = write_filelist_csv(output_path, metadata)
+
+        # Verify it was written
+        assert output_path.exists()
+        assert len(filelist_hash) == 64
+
+        # Read back and verify uid/gid/executable were captured
+        from coldstore.core.manifest import read_filelist_csv
+
+        read_entries = read_filelist_csv(output_path)
+
+        # Check that extended metadata is present
+        assert read_entries[0]["uid"] == 1000
+        assert read_entries[0]["gid"] == 1000
+        assert read_entries[0]["is_executable"] == 0
+        assert read_entries[0]["ext"] == "txt"
+
+        assert read_entries[1]["is_executable"] == 1
+        assert read_entries[1]["ext"] == "sh"

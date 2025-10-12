@@ -3,10 +3,12 @@
 import hashlib
 import logging
 import tarfile
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
+from .manifest import write_filelist_csv
 from .scanner import FileScanner
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,7 @@ class ArchiveBuilder:
         output_path: Path,
         compression_level: int = DEFAULT_COMPRESSION_LEVEL,
         compute_sha256: bool = True,
+        generate_filelist: bool = False,  # TODO: Change to True once stable
     ):
         """
         Initialize archive builder.
@@ -37,11 +40,24 @@ class ArchiveBuilder:
             output_path: Path where archive will be written
             compression_level: Gzip compression level (0-9, default: 6)
             compute_sha256: Whether to compute SHA256 hash of archive (default: True)
+            generate_filelist: Whether to generate FILELIST.csv.gz (default: False)
+
+        Note on Determinism:
+            Archives are deterministic when the source state is identical:
+            - Same file contents → same file hashes in tar
+            - Same mtimes → same tar member metadata
+            - Same structure → same archive
+
+            When generate_filelist=True, the FILELIST.csv.gz contains mtimes,
+            so changing file mtimes will change the FILELIST hash (correct behavior,
+            as mtimes are part of the source state we're capturing).
         """
         self.output_path = Path(output_path)
         self.compression_level = compression_level
         self.compute_sha256 = compute_sha256
+        self.generate_filelist = generate_filelist
         self.archive_sha256: Optional[str] = None
+        self.filelist_sha256: Optional[str] = None
         self.bytes_written = 0
 
         # Validate compression level
@@ -71,8 +87,12 @@ class ArchiveBuilder:
                 - path: Path to created archive
                 - size_bytes: Archive size in bytes
                 - sha256: Archive SHA256 hash (if compute_sha256=True)
+                - filelist_sha256: FILELIST.csv.gz SHA256 hash
+                    (if generate_filelist=True)
                 - files_added: Number of files added
                 - dirs_added: Number of directories added
+                - file_metadata: List of file metadata dicts
+                    (if generate_filelist=True)
         """
         if arcname_root is None:
             arcname_root = scanner.source_root.name
@@ -87,6 +107,9 @@ class ArchiveBuilder:
         if progress_callback:
             counts = scanner.count_files()
             total_items = counts["total"]
+
+        # Collect file metadata if generating FILELIST.csv.gz
+        file_metadata_list: list[dict] = []
 
         # Create SHA256 hasher if requested
         sha256_hasher = hashlib.sha256() if self.compute_sha256 else None
@@ -121,6 +144,11 @@ class ArchiveBuilder:
                         arcname = str(Path(arcname_root) / rel_path)
 
                         try:
+                            # Collect file metadata if generating FILELIST
+                            if self.generate_filelist:
+                                metadata = scanner.collect_file_metadata(path)
+                                file_metadata_list.append(metadata)
+
                             # Add file/directory to archive
                             tar.add(path, arcname=arcname, recursive=False)
 
@@ -140,6 +168,35 @@ class ArchiveBuilder:
                             )
                             continue
 
+                    # Generate and add FILELIST.csv.gz if requested
+                    if self.generate_filelist and file_metadata_list:
+                        logger.info(
+                            "Generating FILELIST.csv.gz with %d entries",
+                            len(file_metadata_list),
+                        )
+
+                        # Create FILELIST.csv.gz in temp directory
+                        with tempfile.TemporaryDirectory() as tmpdir:
+                            filelist_path = Path(tmpdir) / "FILELIST.csv.gz"
+                            self.filelist_sha256 = write_filelist_csv(
+                                filelist_path,
+                                file_metadata_list,
+                                compression_level=self.compression_level,
+                            )
+
+                            # Add FILELIST.csv.gz to archive at
+                            # /COLDSTORE/FILELIST.csv.gz
+                            coldstore_dir_name = f"{arcname_root}/COLDSTORE"
+                            tar.add(
+                                filelist_path,
+                                arcname=f"{coldstore_dir_name}/FILELIST.csv.gz",
+                            )
+
+                        logger.info(
+                            "FILELIST.csv.gz added to archive (hash: %s)",
+                            self.filelist_sha256[:16],
+                        )
+
             # Get final hash
             if sha256_hasher:
                 self.archive_sha256 = sha256_hasher.hexdigest()
@@ -154,13 +211,20 @@ class ArchiveBuilder:
                 self.bytes_written,
             )
 
-            return {
+            result = {
                 "path": self.output_path,
                 "size_bytes": self.bytes_written,
                 "sha256": self.archive_sha256,
                 "files_added": files_added,
                 "dirs_added": dirs_added,
             }
+
+            # Add FILELIST metadata if generated
+            if self.generate_filelist:
+                result["filelist_sha256"] = self.filelist_sha256
+                result["file_metadata"] = file_metadata_list
+
+            return result
 
         except Exception as e:
             logger.error("Failed to create archive: %s", e)
