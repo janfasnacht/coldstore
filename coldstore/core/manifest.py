@@ -143,6 +143,16 @@ class FileEntry(BaseModel):
     sha256: Optional[str] = Field(None, description="SHA256 hash for files")
     link_target: Optional[str] = Field(None, description="Symlink target if applicable")
 
+    @field_validator("path")
+    @classmethod
+    def validate_path_is_relative(cls, v: str) -> str:
+        """Validate that path is relative, not absolute."""
+        from pathlib import Path
+
+        if Path(v).is_absolute():
+            raise ValueError(f"Path must be relative, not absolute: {v}")
+        return v
+
     @field_validator("sha256")
     @classmethod
     def validate_sha256(cls, v: Optional[str]) -> Optional[str]:
@@ -153,8 +163,18 @@ class FileEntry(BaseModel):
             raise ValueError("SHA256 must be 64 hexadecimal characters")
         return v.lower()  # Normalize to lowercase
 
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v: str) -> str:
+        """Validate mode is valid octal format (0644 not 0o644)."""
+        # Accept both "0644" and "0o644" but normalize to "0644"
+        if v.startswith("0o"):
+            v = v[2:]  # Strip "0o" prefix
+        if not re.match(r"^[0-7]{3,4}$", v):
+            raise ValueError(f"Mode must be valid octal (e.g. 0644): {v}")
+        return v.zfill(4)  # Pad to 4 digits
+
     # TODO: Add timestamp validation for mtime_utc (ISO-8601 format)
-    # TODO: Add mode validation (should be valid octal like "0644")
     # TODO: Add helper classmethod: create_from_path(path, stat_result)
 
 

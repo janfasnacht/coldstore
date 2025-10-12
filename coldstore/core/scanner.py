@@ -232,7 +232,8 @@ class FileScanner:
         try:
             rel_path = path.relative_to(self.source_root)
         except ValueError:
-            rel_path = path  # Fallback if not relative
+            # Path is outside source_root - use just the name as fallback
+            rel_path = Path(path.name)
 
         # Determine file type
         if path.is_symlink():
@@ -252,7 +253,8 @@ class FileScanner:
         try:
             st = path.lstat()  # Use lstat to not follow symlinks
             size = st.st_size if file_type == FileType.FILE else None
-            mode = oct(stat_module.S_IMODE(st.st_mode))
+            # Format mode as "0644" not "0o644" per FILELIST spec
+            mode = f"{stat_module.S_IMODE(st.st_mode):04o}"
             mtime_utc = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
             uid = st.st_uid
             gid = st.st_gid

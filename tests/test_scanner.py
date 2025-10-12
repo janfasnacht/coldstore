@@ -328,3 +328,122 @@ class TestVCSDirectories:
 
         # Should not find anything in .git
         assert not any(".git" in p.parts for p in paths)
+
+
+class TestScannerManifestIntegration:
+    """Test end-to-end integration between Scanner and Manifest."""
+
+    def test_scanner_to_fileentry_pipeline(self, tmp_path):
+        """Test full pipeline: Scanner → metadata → FileEntry."""
+        from pathlib import Path
+
+        from coldstore.core.manifest import FileEntry
+
+        # Create test files with various types
+        (tmp_path / "file.txt").write_text("content")
+        (tmp_path / "subdir").mkdir()
+        (tmp_path / "script.py").write_text("#!/usr/bin/env python\n")
+        (tmp_path / "script.py").chmod(0o755)
+
+        scanner = FileScanner(tmp_path)
+
+        # Collect metadata and create FileEntry objects
+        file_entries = []
+        for path in scanner.scan():
+            metadata = scanner.collect_file_metadata(path)
+
+            # Verify all paths are relative
+            assert not Path(metadata["path"]).is_absolute(), (
+                f"Scanner returned absolute path: {metadata['path']}"
+            )
+
+            # Create FileEntry (will validate schema)
+            entry = FileEntry(
+                path=metadata["path"],
+                type=metadata["type"],
+                size=metadata["size"],
+                mode=metadata["mode"],
+                mtime_utc=metadata["mtime_utc"],
+                link_target=metadata["link_target"],
+            )
+            file_entries.append(entry)
+
+        # Verify we got all expected files
+        paths = [e.path for e in file_entries]
+        assert "file.txt" in paths
+        assert "subdir" in paths
+        assert "script.py" in paths
+
+        # Verify executable detection
+        script_entry = next(e for e in file_entries if e.path == "script.py")
+        assert script_entry.mode == "0755"
+
+    def test_manifest_with_scanned_files(self, tmp_path):
+        """Test creating complete manifest from scanned files."""
+        from pathlib import Path
+
+        from coldstore.core.manifest import (
+            ColdstoreManifest,
+            SourceMetadata,
+            EnvironmentMetadata,
+            SystemMetadata,
+            ToolsMetadata,
+            GitMetadata,
+            ArchiveMetadata,
+            MemberCount,
+            FileEntry,
+        )
+
+        # Create test structure
+        (tmp_path / "README.md").write_text("# Project")
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "main.py").write_text("print('hello')")
+
+        # Scan files
+        scanner = FileScanner(tmp_path)
+        file_entries = []
+
+        for path in scanner.scan():
+            metadata = scanner.collect_file_metadata(path)
+            entry = FileEntry(
+                path=metadata["path"],
+                type=metadata["type"],
+                size=metadata["size"],
+                mode=metadata["mode"],
+                mtime_utc=metadata["mtime_utc"],
+            )
+            file_entries.append(entry)
+
+        # Create manifest
+        manifest = ColdstoreManifest(
+            created_utc="2025-01-01T00:00:00Z",
+            id="test-integration",
+            source=SourceMetadata(root=str(tmp_path)),
+            environment=EnvironmentMetadata(
+                system=SystemMetadata(
+                    os="Darwin", os_version="23.6.0", hostname="test"
+                ),
+                tools=ToolsMetadata(
+                    coldstore_version="2.0.0", python_version="3.11.0"
+                ),
+            ),
+            git=GitMetadata(present=False),
+            archive=ArchiveMetadata(
+                filename="test.tar.gz",
+                size_bytes=1024,
+                sha256="a" * 64,
+                member_count=MemberCount(files=2, dirs=1),
+            ),
+            files=file_entries,
+        )
+
+        # Verify manifest serialization
+        yaml_str = manifest.to_yaml()
+        assert "README.md" in yaml_str
+        assert "src/main.py" in yaml_str
+
+        # Verify all paths in manifest are relative
+        for file_entry in manifest.files:
+            assert not Path(file_entry.path).is_absolute(), (
+                f"Manifest contains absolute path: {file_entry.path}"
+            )
