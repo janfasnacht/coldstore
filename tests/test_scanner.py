@@ -162,6 +162,107 @@ class TestGitignoreSupport:
         assert len(paths) > 0  # Should still scan files
 
 
+class TestEstimateSize:
+    """Test size estimation functionality."""
+
+    def test_estimate_size_basic(self, sample_files):
+        """Test basic size estimation."""
+        scanner = FileScanner(sample_files)
+        total_size = scanner.estimate_size()
+
+        # Should get total size of all files
+        assert total_size > 0
+
+    def test_estimate_size_multiple_files(self, tmp_path):
+        """Test size estimation with known file sizes."""
+        (tmp_path / "file1.txt").write_text("a" * 100)
+        (tmp_path / "file2.txt").write_text("b" * 200)
+        (tmp_path / "file3.txt").write_text("c" * 300)
+
+        scanner = FileScanner(tmp_path)
+        total_size = scanner.estimate_size()
+
+        # Should be sum of all file sizes (600 bytes)
+        assert total_size == 600
+
+    def test_estimate_size_excludes_symlinks(self, tmp_path):
+        """Test that symlinks are not counted in size."""
+        (tmp_path / "real.txt").write_text("content")
+        (tmp_path / "link.txt").symlink_to(tmp_path / "real.txt")
+
+        scanner = FileScanner(tmp_path)
+        total_size = scanner.estimate_size()
+
+        # Should only count real file, not symlink
+        assert total_size == len("content")
+
+
+class TestCollectFileMetadata:
+    """Test metadata collection for manifest generation."""
+
+    def test_collect_file_metadata(self, tmp_path):
+        """Test collecting metadata for a regular file."""
+        file_path = tmp_path / "test.txt"
+        file_path.write_text("hello world")
+
+        scanner = FileScanner(tmp_path)
+        metadata = scanner.collect_file_metadata(file_path)
+
+        from coldstore.core.manifest import FileType
+
+        assert metadata["path"] == "test.txt"
+        assert metadata["type"] == FileType.FILE
+        assert metadata["size"] == 11
+        assert metadata["mode"].startswith("0")  # Octal mode
+        assert "mtime_utc" in metadata
+        assert metadata["link_target"] is None
+
+    def test_collect_directory_metadata(self, tmp_path):
+        """Test collecting metadata for a directory."""
+        dir_path = tmp_path / "subdir"
+        dir_path.mkdir()
+
+        scanner = FileScanner(tmp_path)
+        metadata = scanner.collect_file_metadata(dir_path)
+
+        from coldstore.core.manifest import FileType
+
+        assert metadata["path"] == "subdir"
+        assert metadata["type"] == FileType.DIR
+        assert metadata["size"] is None  # Directories don't have size
+
+    def test_collect_symlink_metadata(self, tmp_path):
+        """Test collecting metadata for a symlink."""
+        target = tmp_path / "target.txt"
+        target.write_text("target content")
+        link = tmp_path / "link.txt"
+        link.symlink_to(target)
+
+        scanner = FileScanner(tmp_path)
+        metadata = scanner.collect_file_metadata(link)
+
+        from coldstore.core.manifest import FileType
+
+        assert metadata["type"] == FileType.SYMLINK
+        assert metadata["link_target"] is not None
+        assert "target.txt" in metadata["link_target"]
+
+    def test_metadata_includes_extended_fields(self, tmp_path):
+        """Test that metadata includes fields for FILELIST.csv.gz."""
+        file_path = tmp_path / "test.py"
+        file_path.write_text("#!/usr/bin/env python\n")
+        file_path.chmod(0o755)  # Make executable
+
+        scanner = FileScanner(tmp_path)
+        metadata = scanner.collect_file_metadata(file_path)
+
+        # Check extended fields for FILELIST.csv.gz
+        assert "_uid" in metadata
+        assert "_gid" in metadata
+        assert "_is_executable" in metadata
+        assert metadata["_ext"] == "py"
+
+
 class TestConvenienceFunction:
     """Test convenience scan_directory function."""
 

@@ -2,7 +2,9 @@
 
 import fnmatch
 import os
+import stat as stat_module
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -122,7 +124,11 @@ class FileScanner:
         Scan the source directory and yield paths in deterministic order.
 
         Yields paths in lexicographic order for deterministic archives.
-        Uses os.walk for efficiency, but sorts results for reproducibility.
+
+        Note: This implementation loads all paths into memory before yielding
+        to ensure deterministic ordering. For very large projects (100k+ files),
+        this uses more memory than a pure streaming approach, but guarantees
+        reproducible archives. Future optimization: streaming with stable sort.
 
         Yields:
             Absolute Path objects for each file/directory
@@ -206,7 +212,76 @@ class FileScanner:
                     # Skip files that can't be stat'd
                     pass
 
-            return total_size
+        return total_size
+
+    def collect_file_metadata(self, path: Path) -> dict:
+        """
+        Collect file metadata for manifest generation.
+
+        Collects all metadata needed for FileEntry in manifest schema,
+        ready to be passed to FileEntry constructor (issue #12).
+
+        Args:
+            path: Absolute path to file/directory
+
+        Returns:
+            Dictionary with metadata compatible with FileEntry schema
+        """
+        from coldstore.core.manifest import FileType
+
+        try:
+            rel_path = path.relative_to(self.source_root)
+        except ValueError:
+            rel_path = path  # Fallback if not relative
+
+        # Determine file type
+        if path.is_symlink():
+            file_type = FileType.SYMLINK
+            link_target = str(path.readlink()) if path.exists() else None
+        elif path.is_dir():
+            file_type = FileType.DIR
+            link_target = None
+        elif path.is_file():
+            file_type = FileType.FILE
+            link_target = None
+        else:
+            file_type = FileType.OTHER
+            link_target = None
+
+        # Get file stats
+        try:
+            st = path.lstat()  # Use lstat to not follow symlinks
+            size = st.st_size if file_type == FileType.FILE else None
+            mode = oct(stat_module.S_IMODE(st.st_mode))
+            mtime_utc = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+            uid = st.st_uid
+            gid = st.st_gid
+            is_executable = bool(st.st_mode & stat_module.S_IXUSR)
+        except OSError:
+            # Fallback for inaccessible files
+            size = None
+            mode = "0000"
+            mtime_utc = datetime.now(timezone.utc).isoformat()
+            uid = 0
+            gid = 0
+            is_executable = False
+
+        # File extension
+        ext = path.suffix.lstrip(".") if path.suffix else ""
+
+        return {
+            "path": str(rel_path),
+            "type": file_type,
+            "size": size,
+            "mode": mode,
+            "mtime_utc": mtime_utc,
+            "link_target": link_target,
+            # uid, gid, is_executable, ext are for FILELIST.csv.gz
+            "_uid": uid,
+            "_gid": gid,
+            "_is_executable": is_executable,
+            "_ext": ext,
+        }
 
 
 # Convenience function for quick scans
