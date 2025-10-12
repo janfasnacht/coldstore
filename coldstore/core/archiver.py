@@ -5,11 +5,13 @@ import logging
 import tarfile
 import tempfile
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from .collectors import collect_environment_metadata, collect_git_metadata
 from .manifest import (
+    MANIFEST_VERSION,
     ArchiveMetadata,
     ColdstoreManifest,
     EventMetadata,
@@ -75,7 +77,17 @@ class ArchiveBuilder:
         self.compute_sha256 = compute_sha256
         self.generate_filelist = generate_filelist
         self.generate_manifest = generate_manifest
+
+        # Validate and set event metadata
+        if event_metadata is not None and not isinstance(
+            event_metadata, EventMetadata
+        ):
+            raise TypeError(
+                f"event_metadata must be EventMetadata instance, "
+                f"got {type(event_metadata).__name__}"
+            )
         self.event_metadata = event_metadata or EventMetadata()
+
         self.archive_sha256: Optional[str] = None
         self.filelist_sha256: Optional[str] = None
         self.bytes_written = 0
@@ -119,6 +131,7 @@ class ArchiveBuilder:
 
         files_added = 0
         dirs_added = 0
+        symlinks_added = 0
 
         logger.info("Creating archive: %s", self.output_path)
 
@@ -172,14 +185,19 @@ class ArchiveBuilder:
                             # Add file/directory to archive
                             tar.add(path, arcname=arcname, recursive=False)
 
-                            if path.is_dir():
+                            # Count by type (symlinks, directories, files)
+                            if path.is_symlink():
+                                symlinks_added += 1
+                            elif path.is_dir():
                                 dirs_added += 1
                             else:
                                 files_added += 1
 
                             # Report progress after each item added
                             if progress_callback:
-                                items_processed = files_added + dirs_added
+                                items_processed = (
+                                    files_added + dirs_added + symlinks_added
+                                )
                                 progress_callback(items_processed, total_items)
 
                         except OSError as e:
@@ -218,14 +236,13 @@ class ArchiveBuilder:
                         )
 
                     # Add MANIFEST.yaml if requested
-                    # Note: Can't include final archive size/hash since
-                    # archive isn't closed yet
+                    # Note: Archive size and SHA256 cannot be determined until after
+                    # the archive is closed, so they are set to None in the embedded
+                    # YAML. The JSON sidecar will have the complete values.
                     if self.generate_manifest:
                         logger.info("Generating MANIFEST.yaml for archive")
 
                         # Generate timestamp and archive ID
-                        from datetime import datetime, timezone
-
                         timestamp_utc = datetime.now(timezone.utc).isoformat().replace(
                             "+00:00", "Z"
                         )
@@ -235,10 +252,10 @@ class ArchiveBuilder:
                         git_metadata = collect_git_metadata(scanner.source_root)
                         env_metadata = collect_environment_metadata()
 
-                        # Create manifest with placeholder values for archive metadata
-                        # (actual values will be in JSON sidecar)
+                        # Create manifest with None for size/hash (not yet known)
+                        # JSON sidecar will have actual values after archive is closed
                         manifest = ColdstoreManifest(
-                            manifest_version="1.0",
+                            manifest_version=MANIFEST_VERSION,
                             created_utc=timestamp_utc,
                             id=archive_id,
                             source=SourceMetadata(
@@ -256,12 +273,12 @@ class ArchiveBuilder:
                             archive=ArchiveMetadata(
                                 format="tar+gzip",
                                 filename=self.output_path.name,
-                                size_bytes=0,  # Placeholder - actual in JSON sidecar
-                                sha256="0" * 64,  # Placeholder - actual in JSON sidecar
+                                size_bytes=None,  # Will be set in JSON sidecar
+                                sha256=None,  # Will be set in JSON sidecar
                                 member_count=MemberCount(
                                     files=files_added,
                                     dirs=dirs_added,
-                                    symlinks=0,
+                                    symlinks=symlinks_added,
                                 ),
                             ),
                             verification=VerificationMetadata(
@@ -307,14 +324,15 @@ class ArchiveBuilder:
             manifest_json_path = None
             sha256_file_path = None
 
-            if self.generate_manifest and hasattr(self, "_manifest"):
+            if self.generate_manifest:
                 logger.info(
                     "Writing MANIFEST.json sidecar with actual archive metadata"
                 )
 
                 # Update manifest with actual archive size and hash
+                # Note: _manifest MUST exist if generate_manifest=True
                 self._manifest.archive.size_bytes = self.bytes_written
-                self._manifest.archive.sha256 = self.archive_sha256 or ""
+                self._manifest.archive.sha256 = self.archive_sha256  # May be None
 
                 # Write JSON sidecar
                 manifest_json_path = (

@@ -11,6 +11,9 @@ from typing import Optional
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+# Manifest schema version
+MANIFEST_VERSION = "1.0"
+
 
 class FileType(str, Enum):
     """File type enumeration."""
@@ -100,18 +103,32 @@ class MemberCount(BaseModel):
 
 
 class ArchiveMetadata(BaseModel):
-    """Archive file metadata."""
+    """Archive file metadata.
+
+    Note:
+        For embedded MANIFEST.yaml files (inside the archive), size_bytes and sha256
+        may be None since they cannot be determined until after the archive is closed.
+        The JSON sidecar (*.MANIFEST.json) will always have complete values.
+    """
 
     format: str = Field(default="tar+gzip", description="Archive format")
     filename: str = Field(..., description="Archive filename")
-    size_bytes: int = Field(..., description="Archive size in bytes")
-    sha256: str = Field(..., description="Archive SHA256 checksum")
+    size_bytes: Optional[int] = Field(
+        None,
+        description="Archive size in bytes (None if not yet computed)",
+    )
+    sha256: Optional[str] = Field(
+        None,
+        description="Archive SHA256 checksum (None if not yet computed)",
+    )
     member_count: MemberCount = Field(..., description="Member counts by type")
 
     @field_validator("sha256")
     @classmethod
-    def validate_sha256(cls, v: str) -> str:
+    def validate_sha256(cls, v: Optional[str]) -> Optional[str]:
         """Validate SHA256 is 64 hex characters."""
+        if v is None:
+            return v
         if not re.match(r"^[a-fA-F0-9]{64}$", v):
             raise ValueError("SHA256 must be 64 hexadecimal characters")
         return v.lower()  # Normalize to lowercase
@@ -185,7 +202,9 @@ class FileEntry(BaseModel):
 class ColdstoreManifest(BaseModel):
     """Complete coldstore manifest schema."""
 
-    manifest_version: str = Field(default="1.0", description="Manifest schema version")
+    manifest_version: str = Field(
+        default=MANIFEST_VERSION, description="Manifest schema version"
+    )
     created_utc: str = Field(..., description="Creation timestamp (ISO-8601 UTC)")
     id: str = Field(..., description="Unique archive identifier")
 
@@ -481,24 +500,32 @@ def read_filelist_csv(csv_path: Path) -> list[dict]:
 
 def generate_archive_id(timestamp_utc: str) -> str:
     """
-    Generate unique archive ID from timestamp.
+    Generate unique archive ID from timestamp and cryptographic random suffix.
 
-    Format: YYYY-MM-DD_HH-MM-SS_XXXXXX (timestamp + 6 random hex chars)
+    Format: YYYY-MM-DD_HH-MM-SS_XXXXXXXXXXXX (timestamp + 12 random hex chars)
+
+    The 12-character hex suffix provides 16^12 (~281 trillion) unique combinations,
+    making collisions extremely unlikely even in high-throughput environments.
 
     Args:
         timestamp_utc: ISO-8601 UTC timestamp
 
     Returns:
         Archive ID string
+
+    Note:
+        Uses secrets module for cryptographically secure randomness.
+        This makes archive IDs non-deterministic even for identical content.
     """
-    import random
+    import secrets
 
     # Convert ISO timestamp to coldstore ID format
     # "2025-09-28T22:15:03Z" -> "2025-09-28_22-15-03"
     timestamp_part = timestamp_utc.replace("T", "_").replace(":", "-").rstrip("Z")
 
-    # Add 6 random hex characters for uniqueness
-    random_part = "".join(random.choices("0123456789abcdef", k=6))
+    # Add 12 cryptographically random hex characters for uniqueness
+    # token_hex(6) generates 6 bytes = 12 hex characters
+    random_part = secrets.token_hex(6)
 
     return f"{timestamp_part}_{random_part}"
 
