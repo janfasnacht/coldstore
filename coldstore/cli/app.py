@@ -1,7 +1,9 @@
 """Typer-based CLI application for coldstore."""
 
+import json
 import logging
 import secrets
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Optional
@@ -11,6 +13,7 @@ import typer
 from coldstore.core.archiver import ArchiveBuilder
 from coldstore.core.manifest import EventMetadata
 from coldstore.core.scanner import FileScanner
+from coldstore.core.verifier import ArchiveVerifier
 
 app = typer.Typer(
     name="coldstore",
@@ -158,7 +161,6 @@ def format_size(bytes_: int) -> str:
 
 @app.command()
 def freeze(  # noqa: C901
-
     source: Annotated[Path, typer.Argument(help="Source directory to archive")],
     destination: Annotated[
         Path, typer.Argument(help="Destination directory for archive and metadata")
@@ -354,9 +356,7 @@ def freeze(  # noqa: C901
             # Only show progress every 10 items to avoid flooding output
             if items_processed % 10 == 0 or items_processed == total_items:
                 percentage = (
-                    (items_processed / total_items * 100)
-                    if total_items > 0
-                    else 0
+                    (items_processed / total_items * 100) if total_items > 0 else 0
                 )
                 typer.echo(
                     f"   Progress: {items_processed}/{total_items} "
@@ -432,6 +432,285 @@ def freeze(  # noqa: C901
             except OSError:
                 pass
         raise typer.Exit(1) from e
+
+
+@app.command()
+def verify(  # noqa: C901
+    archive_path: Annotated[
+        Path, typer.Argument(help="Path to archive file (.tar.gz)")
+    ],
+    # Verification level
+    deep: Annotated[
+        bool,
+        typer.Option(
+            "--deep", help="Perform deep verification (verify per-file hashes)"
+        ),
+    ] = False,
+    # Options
+    manifest: Annotated[
+        Optional[Path],
+        typer.Option(
+            help="Path to MANIFEST.json file (default: archive + .MANIFEST.json)"
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output results as JSON"),
+    ] = False,
+    quiet: Annotated[
+        bool,
+        typer.Option("--quiet", help="Suppress output except errors"),
+    ] = False,
+    fail_fast: Annotated[
+        bool,
+        typer.Option("--fail-fast", help="Stop at first error"),
+    ] = False,
+):
+    """Verify archive integrity with multi-level checks.
+
+    Verification Levels:
+    - Quick (default): Archive hash, manifest validation, FILELIST hash
+    - Deep (--deep): All quick checks + per-file hash verification
+
+    Examples:
+        coldstore verify archive.tar.gz
+        coldstore verify --deep archive.tar.gz
+        coldstore verify --json --quiet archive.tar.gz
+    """
+    # Validate archive path
+    archive_path = archive_path.expanduser().resolve()
+    if not archive_path.exists():
+        typer.echo(f"❌ Archive not found: {archive_path}", err=True)
+        raise typer.Exit(1)
+
+    # Create verifier
+    try:
+        verifier = ArchiveVerifier(
+            archive_path=archive_path,
+            manifest_path=manifest,
+        )
+    except FileNotFoundError as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(1) from None
+
+    # Display header (unless quiet or JSON mode)
+    if not quiet and not json_output:
+        typer.echo("=" * 60)
+        typer.echo("🔍 Coldstore - Verifying Archive")
+        typer.echo("=" * 60)
+        typer.echo(f"Archive:  {archive_path.name}")
+        typer.echo(f"Level:    {'Deep' if deep else 'Quick'}")
+        typer.echo("=" * 60)
+        typer.echo("")
+
+    # Perform verification
+    time.time()
+
+    if deep:
+        # Deep verification with progress
+        if not quiet and not json_output:
+            # Progress tracking state
+            progress_state = {
+                "start_time": time.time(),
+                "last_update": 0,
+            }
+
+            def progress_callback(
+                files_verified: int, total_files: int, current_file: str
+            ):
+                """Display progress with ETA."""
+                current_time = time.time()
+
+                # Only update every 0.1 seconds to avoid flooding output
+                if current_time - progress_state["last_update"] < 0.1:
+                    return
+
+                progress_state["last_update"] = current_time
+
+                # Calculate progress
+                percentage = (
+                    (files_verified / total_files * 100) if total_files > 0 else 0
+                )
+                elapsed = current_time - progress_state["start_time"]
+
+                # Calculate ETA
+                if files_verified > 0:
+                    avg_time_per_file = elapsed / files_verified
+                    remaining_files = total_files - files_verified
+                    eta_seconds = avg_time_per_file * remaining_files
+                    eta_str = format_time_duration(eta_seconds)
+                else:
+                    eta_str = "calculating..."
+
+                # Format elapsed time
+                elapsed_str = format_time_duration(elapsed)
+
+                # Create progress bar
+                bar_width = 20
+                filled = int(bar_width * percentage / 100)
+                bar = "█" * filled + "░" * (bar_width - filled)
+
+                # Truncate filename if too long
+                display_file = current_file
+                if len(display_file) > 40:
+                    display_file = "..." + display_file[-37:]
+
+                # Display progress (overwrite previous line)
+                typer.echo(
+                    f"\r🔍 [{bar}] {percentage:5.1f}% ({files_verified}/{total_files}) | "
+                    f"Elapsed: {elapsed_str} | ETA: {eta_str}\n"
+                    f"   Current: {display_file}",
+                    nl=False,
+                )
+
+            result = verifier.verify_deep(
+                progress_callback=progress_callback,
+                fail_fast=fail_fast,
+            )
+
+            # Clear progress line
+            typer.echo("\r" + " " * 120 + "\r", nl=False)
+        else:
+            result = verifier.verify_deep(fail_fast=fail_fast)
+    else:
+        # Quick verification
+        result = verifier.verify_quick()
+
+    # Output results
+    if json_output:
+        # JSON output mode
+        output = result.to_dict()
+        output["archive"] = str(archive_path)
+        typer.echo(json.dumps(output, indent=2))
+    elif not quiet:
+        # Human-readable output
+        display_verification_result(result, archive_path, deep)
+
+    # Exit with appropriate code
+    if result.passed:
+        raise typer.Exit(0)
+    else:
+        raise typer.Exit(1)
+
+
+def format_time_duration(seconds: float) -> str:
+    """Format time duration in human-readable format.
+
+    Args:
+        seconds: Duration in seconds
+
+    Returns:
+        Formatted string (e.g., "2m 15s", "45s", "1h 23m")
+    """
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    elif seconds < 3600:
+        minutes = int(seconds / 60)
+        secs = int(seconds % 60)
+        return f"{minutes}m {secs}s"
+    else:
+        hours = int(seconds / 3600)
+        minutes = int((seconds % 3600) / 60)
+        return f"{hours}h {minutes}m"
+
+
+def display_verification_result(
+    result,
+    archive_path: Path,
+    deep_mode: bool,
+):
+    """Display verification result in human-readable format.
+
+    Args:
+        result: VerificationResult object
+        archive_path: Path to archive
+        deep_mode: Whether deep verification was performed
+    """
+    typer.echo("")
+    typer.echo("=" * 60)
+
+    if result.passed:
+        typer.echo("✅ Verification successful!")
+        typer.echo("=" * 60)
+        typer.echo(f"Archive:     {archive_path.name}")
+        typer.echo(f"Level:       {'Deep' if deep_mode else 'Quick'}")
+        typer.echo(
+            f"Checks:      {result.checks_passed}/{result.checks_performed} passed"
+        )
+
+        if deep_mode and result.files_verified is not None:
+            typer.echo(f"Files:       {result.files_verified} verified")
+
+            # Show bytes verified and throughput
+            if result.bytes_verified is not None:
+                if result.bytes_verified < 1024 * 1024:
+                    size_str = f"{result.bytes_verified / 1024:.1f} KB"
+                elif result.bytes_verified < 1024 * 1024 * 1024:
+                    size_str = f"{result.bytes_verified / (1024 * 1024):.1f} MB"
+                else:
+                    size_str = f"{result.bytes_verified / (1024 * 1024 * 1024):.2f} GB"
+                typer.echo(f"Data:        {size_str}")
+
+            throughput = result.get_throughput_mbps()
+            if throughput:
+                typer.echo(f"Throughput:  {throughput:.1f} MB/s")
+
+        typer.echo(f"Duration:    {format_time_duration(result.elapsed_seconds)}")
+
+        if result.warnings:
+            typer.echo("")
+            typer.echo("⚠️  Warnings:")
+            for warning in result.warnings:
+                typer.echo(f"   • {warning}")
+
+        typer.echo("=" * 60)
+        typer.echo("")
+        typer.echo("All checks passed. Archive is intact and verifiable.")
+
+    else:
+        typer.echo("❌ Verification failed!")
+        typer.echo("=" * 60)
+        typer.echo(f"Archive:     {archive_path.name}")
+        typer.echo(f"Level:       {'Deep' if deep_mode else 'Quick'}")
+        typer.echo(
+            f"Checks:      {result.checks_passed}/{result.checks_performed} passed"
+        )
+
+        if deep_mode and result.files_verified is not None:
+            typer.echo(f"Files:       {result.files_verified} verified")
+
+            # Show bytes verified even on failure
+            if result.bytes_verified is not None:
+                if result.bytes_verified < 1024 * 1024:
+                    size_str = f"{result.bytes_verified / 1024:.1f} KB"
+                elif result.bytes_verified < 1024 * 1024 * 1024:
+                    size_str = f"{result.bytes_verified / (1024 * 1024):.1f} MB"
+                else:
+                    size_str = f"{result.bytes_verified / (1024 * 1024 * 1024):.2f} GB"
+                typer.echo(f"Data:        {size_str}")
+
+        typer.echo(f"Duration:    {format_time_duration(result.elapsed_seconds)}")
+
+        typer.echo("")
+        typer.echo("❌ Errors:")
+        for error in result.errors:
+            # Handle multi-line errors (indent continuation lines)
+            lines = error.split("\n")
+            typer.echo(f"   • {lines[0]}")
+            for line in lines[1:]:
+                typer.echo(f"     {line}")
+
+        if result.warnings:
+            typer.echo("")
+            typer.echo("⚠️  Warnings:")
+            for warning in result.warnings:
+                typer.echo(f"   • {warning}")
+
+        typer.echo("=" * 60)
+        typer.echo("")
+        typer.echo(
+            "⚠️  FATAL: Archive failed integrity check. Do not trust this archive."
+        )
 
 
 if __name__ == "__main__":
