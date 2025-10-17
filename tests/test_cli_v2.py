@@ -1,4 +1,4 @@
-"""Tests for v2.0 Typer-based CLI."""
+"""Tests for Typer-based CLI."""
 
 
 from typer.testing import CliRunner
@@ -25,7 +25,7 @@ class TestCLIStructure:
         result = runner.invoke(app, ["--version"])
 
         assert result.exit_code == 0
-        assert "coldstore v2.0.0-dev" in result.output
+        assert "coldstore v1.0.0-dev" in result.output
 
     def test_freeze_command_exists(self):
         """Test freeze command is available."""

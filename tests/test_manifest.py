@@ -31,7 +31,7 @@ class TestManifestSchema:
                 system=SystemMetadata(
                     os="Darwin", os_version="23.6.0", hostname="test-host"
                 ),
-                tools=ToolsMetadata(coldstore_version="2.0.0", python_version="3.11.0"),
+                tools=ToolsMetadata(coldstore_version="1.0.0", python_version="3.11.0"),
             ),
             git=GitMetadata(present=False),
             archive=ArchiveMetadata(
@@ -61,7 +61,7 @@ class TestManifestSchema:
             ),
             environment=EnvironmentMetadata(
                 system=SystemMetadata(os="Linux", os_version="5.10", hostname="node1"),
-                tools=ToolsMetadata(coldstore_version="2.0.0", python_version="3.9.0"),
+                tools=ToolsMetadata(coldstore_version="1.0.0", python_version="3.9.0"),
             ),
             git=GitMetadata(
                 present=True,
@@ -130,7 +130,7 @@ class TestManifestSerialization:
                 system=SystemMetadata(
                     os="Darwin", os_version="23.6.0", hostname="macbook"
                 ),
-                tools=ToolsMetadata(coldstore_version="2.0.0", python_version="3.11.9"),
+                tools=ToolsMetadata(coldstore_version="1.0.0", python_version="3.11.9"),
             ),
             git=GitMetadata(
                 present=True, commit="abc123def", branch="main", dirty=False
@@ -190,7 +190,7 @@ class TestManifestSerialization:
             source=SourceMetadata(root="/test"),
             environment=EnvironmentMetadata(
                 system=SystemMetadata(os="Linux", os_version="5.10", hostname="test"),
-                tools=ToolsMetadata(coldstore_version="2.0.0", python_version="3.9.0"),
+                tools=ToolsMetadata(coldstore_version="1.0.0", python_version="3.9.0"),
             ),
             git=GitMetadata(present=False),  # No git fields set
             archive=ArchiveMetadata(
@@ -353,7 +353,7 @@ class TestSerializationEnhanced:
                     os="Darwin", os_version="23.6.0", hostname="test-host"
                 ),
                 tools=ToolsMetadata(
-                    coldstore_version="2.0.0", python_version="3.11.9"
+                    coldstore_version="1.0.0", python_version="3.11.9"
                 ),
             ),
             git=GitMetadata(
@@ -404,7 +404,7 @@ class TestManifestEdgeCases:
             source=SourceMetadata(root="/test"),
             environment=EnvironmentMetadata(
                 system=SystemMetadata(os="Linux", os_version="5.10", hostname="test"),
-                tools=ToolsMetadata(coldstore_version="2.0.0", python_version="3.9.0"),
+                tools=ToolsMetadata(coldstore_version="1.0.0", python_version="3.9.0"),
             ),
             git=GitMetadata(present=False),
             archive=ArchiveMetadata(
@@ -440,7 +440,7 @@ class TestManifestEdgeCases:
             event=event,
             environment=EnvironmentMetadata(
                 system=SystemMetadata(os="Linux", os_version="5.10", hostname="test"),
-                tools=ToolsMetadata(coldstore_version="2.0.0", python_version="3.9.0"),
+                tools=ToolsMetadata(coldstore_version="1.0.0", python_version="3.9.0"),
             ),
             git=GitMetadata(present=False),
             archive=ArchiveMetadata(

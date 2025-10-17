@@ -648,7 +648,7 @@ class TestScannerManifestIntegration:
                     os="Darwin", os_version="23.6.0", hostname="test"
                 ),
                 tools=ToolsMetadata(
-                    coldstore_version="2.0.0", python_version="3.11.0"
+                    coldstore_version="1.0.0", python_version="3.11.0"
                 ),
             ),
             git=GitMetadata(present=False),

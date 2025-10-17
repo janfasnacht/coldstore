@@ -1,4 +1,4 @@
-"""Metadata collectors for coldstore v2.0."""
+"""Metadata collectors for coldstore."""
 
 import logging
 import platform

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "coldstore"
-version = "2.0.0-dev"
+version = "1.0.0-dev"
 description = "Event-driven project archival system with comprehensive metadata and verification"
 authors = ["janfasnacht <jan.fasnacht@gmail.com>"]
 readme = "README.md"

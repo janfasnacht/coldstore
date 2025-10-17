@@ -1,4 +1,4 @@
-"""Streaming tar+gzip archive builder for coldstore v2.0."""
+"""Streaming tar+gzip archive builder for coldstore."""
 
 import hashlib
 import logging
@@ -133,7 +133,7 @@ class ArchiveBuilder:
         dirs_added = 0
         symlinks_added = 0
 
-        logger.info("Creating archive: %s", self.output_path)
+        logger.debug("Creating archive: %s", self.output_path)
 
         # Count total items for progress reporting
         total_items = 0
@@ -208,7 +208,7 @@ class ArchiveBuilder:
 
                     # Generate and add COLDSTORE metadata files if requested
                     if self.generate_filelist and file_metadata_list:
-                        logger.info(
+                        logger.debug(
                             "Generating FILELIST.csv.gz with %d entries",
                             len(file_metadata_list),
                         )
@@ -230,7 +230,7 @@ class ArchiveBuilder:
                                 arcname=f"{coldstore_dir_name}/FILELIST.csv.gz",
                             )
 
-                        logger.info(
+                        logger.debug(
                             "FILELIST.csv.gz added to archive (hash: %s)",
                             self.filelist_sha256[:16],
                         )
@@ -240,7 +240,7 @@ class ArchiveBuilder:
                     # the archive is closed, so they are set to None in the embedded
                     # YAML. The JSON sidecar will have the complete values.
                     if self.generate_manifest:
-                        logger.info("Generating MANIFEST.yaml for archive")
+                        logger.debug("Generating MANIFEST.yaml for archive")
 
                         # Generate timestamp and archive ID
                         timestamp_utc = datetime.now(timezone.utc).isoformat().replace(
@@ -304,7 +304,7 @@ class ArchiveBuilder:
                         # Store manifest for later update with actual archive info
                         self._manifest = manifest
 
-                        logger.info("MANIFEST.yaml added to archive")
+                        logger.debug("MANIFEST.yaml added to archive")
 
             # Get final hash
             if sha256_hasher:
@@ -313,7 +313,7 @@ class ArchiveBuilder:
             # Get archive size
             self.bytes_written = self.output_path.stat().st_size
 
-            logger.info(
+            logger.debug(
                 "Archive created: %d files, %d dirs, %d bytes",
                 files_added,
                 dirs_added,
@@ -325,7 +325,7 @@ class ArchiveBuilder:
             sha256_file_path = None
 
             if self.generate_manifest:
-                logger.info(
+                logger.debug(
                     "Writing MANIFEST.json sidecar with actual archive metadata"
                 )
 
@@ -339,14 +339,14 @@ class ArchiveBuilder:
                     self.output_path.parent / f"{self.output_path.name}.MANIFEST.json"
                 )
                 self._manifest.write_json(manifest_json_path)
-                logger.info("MANIFEST.json sidecar written: %s", manifest_json_path)
+                logger.debug("MANIFEST.json sidecar written: %s", manifest_json_path)
 
                 # Write .sha256 file if SHA256 was computed
                 if self.archive_sha256:
                     sha256_file_path = write_sha256_file(
                         self.output_path, self.archive_sha256
                     )
-                    logger.info("SHA256 checksum file written: %s", sha256_file_path)
+                    logger.debug("SHA256 checksum file written: %s", sha256_file_path)
 
             result = {
                 "path": self.output_path,

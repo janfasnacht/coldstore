@@ -1,4 +1,4 @@
-"""Typer-based CLI application for coldstore v2.0."""
+"""Typer-based CLI application for coldstore."""
 
 import logging
 import secrets
@@ -22,7 +22,7 @@ app = typer.Typer(
 def version_callback(value: bool):
     """Display version and exit."""
     if value:
-        typer.echo("coldstore v2.0.0-dev")
+        typer.echo("coldstore v1.0.0-dev")
         raise typer.Exit()
 
 
@@ -33,7 +33,7 @@ def main(
         typer.Option("--version", callback=version_callback, is_eager=True),
     ] = None,
 ):
-    """Coldstore v2.0 - Event-driven project archival system.
+    """Coldstore - Event-driven project archival system.
 
     Create immutable, verifiable snapshots of project state at significant
     moments. Captures not just files, but context: git state, environment,
@@ -45,11 +45,26 @@ def main(
 def generate_archive_filename(custom_name: Optional[str] = None) -> str:
     """Generate archive filename (timestamp-based or custom).
 
+    Default Format: coldstore_YYYY-MM-DD_HH-MM-SS_XXXXXX.tar.gz
+        - Timestamp: UTC time when archive is created
+        - Random suffix: 6 hex characters for uniqueness
+        - Design: Sortable, collision-resistant, timezone-aware
+
     Args:
         custom_name: Optional custom name (will append .tar.gz if missing)
 
     Returns:
         Archive filename with .tar.gz extension
+
+    Examples:
+        >>> generate_archive_filename()
+        'coldstore_2025-01-15_14-30-45_a3f2c1.tar.gz'
+
+        >>> generate_archive_filename("my_project")
+        'my_project.tar.gz'
+
+        >>> generate_archive_filename("backup.tar.gz")
+        'backup.tar.gz'
     """
     if custom_name:
         # Ensure .tar.gz extension
@@ -202,33 +217,10 @@ def freeze(  # noqa: C901
         ),
     ] = "info",
 ):
-    """Create immutable, verifiable archive of project state.
+    """Create immutable archive with comprehensive metadata.
 
-    Coldstore captures not just files, but context: git state, environment,
-    and the event that triggered this snapshot. Perfect for submissions,
-    releases, and milestones.
-
-    By default, includes ALL files (including .git/), generates comprehensive
-    metadata (MANIFEST.json, FILELIST.csv.gz), and computes SHA256 checksums.
-
-    \b
-    Examples:
-        # Quick freeze (all defaults)
-        $ coldstore freeze ~/project ~/archives
-
-        # With event context
-        $ coldstore freeze ~/project ~/archives \\
-            --milestone "PNAS submission" \\
-            --note "Final version submitted to PNAS"
-
-        # Exclude logs and caches
-        $ coldstore freeze ~/project ~/archives \\
-            --exclude "*.log" \\
-            --exclude "__pycache__/"
-
-        # Maximum compression
-        $ coldstore freeze ~/project ~/archives \\
-            --compression-level 9
+    Captures project state at significant moments: git state, environment,
+    file checksums, and event context (milestone, notes, contacts).
     """
     # Configure logging
     log_level_upper = log_level.upper()
@@ -272,7 +264,7 @@ def freeze(  # noqa: C901
 
     # === STEP 3: Display operation summary ===
     typer.echo("=" * 60)
-    typer.echo("📦 Coldstore v2.0 - Creating Archive")
+    typer.echo("📦 Coldstore - Creating Archive")
     typer.echo("=" * 60)
     typer.echo(f"Source:      {source}")
     typer.echo(f"Destination: {destination}")
@@ -411,6 +403,12 @@ def freeze(  # noqa: C901
             typer.echo(f"Checksum:    {result['sha256_file_path']}")
 
         typer.echo("=" * 60)
+        typer.echo("")
+        typer.echo("📝 Next steps:")
+        if result.get("sha256_file_path"):
+            typer.echo(f"   • Verify: shasum -c {result['sha256_file_path'].name}")
+        typer.echo(f"   • Inspect: tar -tzf {archive_filename} | head")
+        typer.echo("")
 
     except KeyboardInterrupt:
         typer.echo("\n❌ Operation cancelled by user", err=True)
