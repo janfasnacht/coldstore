@@ -11,9 +11,11 @@ from typing import Annotated, Optional
 import typer
 
 from coldstore.core.archiver import ArchiveBuilder
+from coldstore.core.inspector import ArchiveInspector
 from coldstore.core.manifest import EventMetadata
 from coldstore.core.scanner import FileScanner
 from coldstore.core.verifier import ArchiveVerifier
+from coldstore.utils.formatters import parse_size
 
 app = typer.Typer(
     name="coldstore",
@@ -556,12 +558,13 @@ def verify(  # noqa: C901
                     display_file = "..." + display_file[-37:]
 
                 # Display progress (overwrite previous line)
-                typer.echo(
-                    f"\r🔍 [{bar}] {percentage:5.1f}% ({files_verified}/{total_files}) | "
+                progress_line = (
+                    f"\r🔍 [{bar}] {percentage:5.1f}% "
+                    f"({files_verified}/{total_files}) | "
                     f"Elapsed: {elapsed_str} | ETA: {eta_str}\n"
-                    f"   Current: {display_file}",
-                    nl=False,
+                    f"   Current: {display_file}"
                 )
+                typer.echo(progress_line, nl=False)
 
             result = verifier.verify_deep(
                 progress_callback=progress_callback,
@@ -614,7 +617,7 @@ def format_time_duration(seconds: float) -> str:
         return f"{hours}h {minutes}m"
 
 
-def display_verification_result(
+def display_verification_result(  # noqa: C901
     result,
     archive_path: Path,
     deep_mode: bool,
@@ -711,6 +714,474 @@ def display_verification_result(
         typer.echo(
             "⚠️  FATAL: Archive failed integrity check. Do not trust this archive."
         )
+
+
+@app.command()
+def inspect(  # noqa: C901
+    archive_path: Annotated[
+        Path, typer.Argument(help="Path to archive file (.tar.gz)")
+    ],
+    # Display modes
+    files: Annotated[
+        bool,
+        typer.Option("--files", help="Show detailed file listing"),
+    ] = False,
+    largest: Annotated[
+        Optional[int],
+        typer.Option("--largest", help="Show N largest files (default: 10)"),
+    ] = None,
+    stats: Annotated[
+        bool,
+        typer.Option("--stats", help="Show detailed statistics"),
+    ] = False,
+    # Filtering options (for --files mode)
+    pattern: Annotated[
+        Optional[str],
+        typer.Option("--pattern", help="Filter files by glob pattern (e.g., '*.py')"),
+    ] = None,
+    min_size: Annotated[
+        Optional[str],
+        typer.Option("--min-size", help="Minimum file size (e.g., '1MB')"),
+    ] = None,
+    max_size: Annotated[
+        Optional[str],
+        typer.Option("--max-size", help="Maximum file size (e.g., '1GB')"),
+    ] = None,
+    limit: Annotated[
+        Optional[int],
+        typer.Option("--limit", help="Limit number of files shown (e.g., 100)"),
+    ] = None,
+    # Output format
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output as JSON"),
+    ] = False,
+):
+    """Inspect archive contents and metadata without extraction.
+
+    Provides quick insights into archive contents, file distributions,
+    and embedded metadata without needing to extract the entire archive.
+
+    Display Modes:
+        - Summary (default): High-level overview of archive
+        - Files (--files): Detailed file listing
+        - Largest (--largest N): Show N largest files
+        - Stats (--stats): Detailed statistics
+
+    Examples:
+        coldstore inspect archive.tar.gz
+        coldstore inspect --files archive.tar.gz
+        coldstore inspect --largest 20 archive.tar.gz
+        coldstore inspect --json archive.tar.gz
+    """
+    # Validate archive path
+    archive_path = archive_path.expanduser().resolve()
+    if not archive_path.exists():
+        typer.echo(f"❌ Archive not found: {archive_path}", err=True)
+        raise typer.Exit(1)
+
+    # Parse size filters if provided
+    min_size_bytes = None
+    max_size_bytes = None
+
+    if min_size:
+        try:
+            min_size_bytes = parse_size(min_size)
+        except ValueError as e:
+            typer.echo(f"❌ Invalid min-size format: {e}", err=True)
+            raise typer.Exit(1) from None
+
+    if max_size:
+        try:
+            max_size_bytes = parse_size(max_size)
+        except ValueError as e:
+            typer.echo(f"❌ Invalid max-size format: {e}", err=True)
+            raise typer.Exit(1) from None
+
+    # Create inspector
+    try:
+        inspector = ArchiveInspector(archive_path)
+    except FileNotFoundError as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(1) from None
+
+    # Determine display mode and output
+    if json_output:
+        # JSON output mode
+        output_data = {}
+
+        if files:
+            file_list = inspector.file_listing(
+                pattern=pattern,
+                min_size=min_size_bytes,
+                max_size=max_size_bytes,
+                limit=limit,
+            )
+            output_data["files"] = file_list
+        elif largest is not None:
+            largest_list = inspector.largest_files(n=largest if largest > 0 else 10)
+            output_data["largest_files"] = largest_list
+        elif stats:
+            statistics = inspector.statistics()
+            output_data["statistics"] = statistics
+        else:
+            # Default: summary
+            summary = inspector.summary()
+            output_data = summary
+
+        # Output JSON
+        typer.echo(json.dumps(output_data, indent=2))
+
+    else:
+        # Human-readable output
+        if files:
+            display_file_listing(
+                inspector,
+                pattern=pattern,
+                min_size=min_size_bytes,
+                max_size=max_size_bytes,
+                limit=limit,
+            )
+        elif largest is not None:
+            display_largest_files(inspector, n=largest if largest > 0 else 10)
+        elif stats:
+            display_statistics(inspector)
+        else:
+            # Default: summary
+            display_summary(inspector, archive_path)
+
+
+def display_summary(inspector: ArchiveInspector, archive_path: Path):  # noqa: C901
+    """Display archive summary in human-readable format.
+
+    Args:
+        inspector: ArchiveInspector instance
+        archive_path: Path to archive
+    """
+    summary = inspector.summary()
+
+    typer.echo("=" * 70)
+    typer.echo("📦 Archive Inspection")
+    typer.echo("=" * 70)
+
+    # Archive info
+    archive = summary.get("archive", {})
+    typer.echo(f"Archive:     {archive.get('filename', 'Unknown')}")
+    size_bytes = archive.get("size_bytes", 0)
+    typer.echo(f"Size:        {format_size(size_bytes)}")
+
+    if "created_utc" in archive:
+        typer.echo(f"Created:     {archive['created_utc']}")
+    if "id" in archive:
+        typer.echo(f"Archive ID:  {archive['id']}")
+
+    # Contents
+    if "contents" in summary:
+        contents = summary["contents"]
+        typer.echo("")
+        typer.echo("Contents:")
+
+        if "message" in contents:
+            typer.echo(f"  {contents['message']}")
+        else:
+            typer.echo(f"  Files:       {contents.get('files', 0)}")
+            typer.echo(f"  Directories: {contents.get('directories', 0)}")
+            if contents.get("symlinks", 0) > 0:
+                typer.echo(f"  Symlinks:    {contents['symlinks']}")
+
+    # Source info
+    if "source" in summary:
+        source = summary["source"]
+        typer.echo("")
+        typer.echo("Source:")
+        typer.echo(f"  Path:        {source.get('root', 'Unknown')}")
+
+        git = source.get("git", {})
+        if git.get("present"):
+            typer.echo("")
+            typer.echo("  Git:")
+            if git.get("commit"):
+                commit_short = git["commit"][:8]
+                typer.echo(f"    Commit:    {commit_short}")
+            if git.get("branch"):
+                typer.echo(f"    Branch:    {git['branch']}")
+            if git.get("tag"):
+                typer.echo(f"    Tag:       {git['tag']}")
+
+            status = "Clean" if not git.get("dirty") else "Dirty (uncommitted changes)"
+            typer.echo(f"    Status:    {status}")
+
+    # Event info
+    if "event" in summary:
+        event = summary["event"]
+        if event.get("name") or event.get("type"):
+            typer.echo("")
+            typer.echo("Event:")
+            if event.get("type"):
+                typer.echo(f"  Type:        {event['type']}")
+            if event.get("name"):
+                typer.echo(f"  Name:        {event['name']}")
+            if event.get("notes"):
+                typer.echo("  Notes:")
+                for note in event["notes"]:
+                    typer.echo(f"    - {note}")
+
+    # Environment info
+    if "environment" in summary:
+        env = summary["environment"]
+        typer.echo("")
+        typer.echo("Environment:")
+
+        system = env.get("system", {})
+        typer.echo(f"  OS:          {system.get('os', 'Unknown')}")
+        typer.echo(f"  Hostname:    {system.get('hostname', 'Unknown')}")
+
+        tools = env.get("tools", {})
+        if tools.get("coldstore_version"):
+            typer.echo(f"  Coldstore:   {tools['coldstore_version']}")
+
+    # Integrity info
+    if "integrity" in summary:
+        integrity = summary["integrity"]
+        typer.echo("")
+        typer.echo("Integrity:")
+
+        archive_sha = integrity.get("archive_sha256")
+        if archive_sha:
+            typer.echo(f"  Archive SHA256:  {archive_sha[:16]}... ✅")
+        else:
+            typer.echo("  Archive SHA256:  Not available")
+
+        filelist_sha = integrity.get("filelist_sha256")
+        if filelist_sha:
+            typer.echo(f"  FILELIST hash:   {filelist_sha[:16]}... ✅")
+
+    # Compression info
+    if "compression" in summary:
+        compression = summary["compression"]
+        typer.echo("")
+        typer.echo("Compression:")
+
+        compressed = compression["compressed_bytes"]
+        uncompressed = compression["uncompressed_bytes"]
+        ratio = compression["ratio_percent"]
+        saved = compression["space_saved_bytes"]
+
+        typer.echo(f"  Compressed:    {format_size(compressed)}")
+        typer.echo(f"  Uncompressed:  {format_size(uncompressed)}")
+        typer.echo(f"  Ratio:         {ratio}% space saved")
+        typer.echo(f"  Saved:         {format_size(saved)}")
+
+    typer.echo("=" * 70)
+
+
+def display_file_listing(  # noqa: C901
+    inspector: ArchiveInspector,
+    pattern: Optional[str] = None,
+    min_size: Optional[int] = None,
+    max_size: Optional[int] = None,
+    limit: Optional[int] = None,
+):
+    """Display detailed file listing.
+
+    Args:
+        inspector: ArchiveInspector instance
+        pattern: Glob pattern filter
+        min_size: Minimum file size in bytes
+        max_size: Maximum file size in bytes
+        limit: Maximum number of files to display
+    """
+    files = inspector.file_listing(
+        pattern=pattern,
+        min_size=min_size,
+        max_size=max_size,
+        limit=limit,
+    )
+
+    if not files:
+        if not inspector.filelist:
+            # No FILELIST available
+            typer.echo("=" * 100)
+            typer.echo("⚠️  File listing not available")
+            typer.echo("=" * 100)
+            typer.echo("")
+            typer.echo("This archive does not contain a FILELIST with file metadata.")
+            typer.echo("")
+            typer.echo("To create archives with file listings, use:")
+            typer.echo("  coldstore freeze <source> <destination>")
+        else:
+            # FILELIST exists but no matches
+            typer.echo("No files found matching criteria.")
+        return
+
+    typer.echo("=" * 100)
+    typer.echo("📄 File Listing")
+    typer.echo("=" * 100)
+
+    # Show filters if applied
+    filters = []
+    if pattern:
+        filters.append(f"pattern: {pattern}")
+    if min_size:
+        filters.append(f"min size: {format_size(min_size)}")
+    if max_size:
+        filters.append(f"max size: {format_size(max_size)}")
+    if limit:
+        filters.append(f"limit: {limit} files")
+
+    if filters:
+        typer.echo(f"Filters: {', '.join(filters)}")
+        typer.echo("")
+
+    # Header
+    typer.echo(f"{'PATH':<60} {'SIZE':>12} {'TYPE':<8}")
+    typer.echo("─" * 100)
+
+    # Files
+    for file_entry in files:
+        path = file_entry["relpath"]
+        file_type = file_entry["type"]
+        size = file_entry.get("size_bytes")
+
+        # Truncate long paths
+        if len(path) > 58:
+            display_path = "..." + path[-55:]
+        else:
+            display_path = path
+
+        # Format size
+        if size is not None:
+            size_str = format_size(size)
+        else:
+            size_str = "-"
+
+        typer.echo(f"{display_path:<60} {size_str:>12} {file_type:<8}")
+
+    typer.echo("=" * 100)
+    typer.echo(f"Total: {len(files)} items shown")
+
+    if limit and len(files) == limit:
+        typer.echo(f"Note: Output limited to {limit} files. Use --limit to show more.")
+
+
+def display_largest_files(inspector: ArchiveInspector, n: int = 10):
+    """Display largest files in archive.
+
+    Args:
+        inspector: ArchiveInspector instance
+        n: Number of files to show
+    """
+    largest = inspector.largest_files(n=n)
+
+    if not largest:
+        typer.echo("=" * 80)
+        typer.echo("⚠️  No file size information available")
+        typer.echo("=" * 80)
+        typer.echo("")
+        typer.echo("This archive does not contain a FILELIST with file metadata.")
+        typer.echo("")
+        typer.echo("To create archives with complete metadata, use:")
+        typer.echo("  coldstore freeze <source> <destination>")
+        typer.echo("")
+        typer.echo("This will generate:")
+        typer.echo("  • MANIFEST.json with archive metadata")
+        typer.echo("  • FILELIST.csv.gz with per-file details")
+        typer.echo("  • SHA256 checksums for verification")
+        return
+
+    typer.echo("=" * 80)
+    typer.echo(f"📊 Top {len(largest)} Largest Files")
+    typer.echo("=" * 80)
+    typer.echo("")
+
+    total_size = 0
+    for i, file_entry in enumerate(largest, 1):
+        path = file_entry["relpath"]
+        size = file_entry["size_bytes"]
+        total_size += size
+
+        # Format output
+        size_str = format_size(size)
+        typer.echo(f"{i:3d}.  {size_str:>10}  {path}")
+
+    typer.echo("")
+    typer.echo("─" * 80)
+    typer.echo(f"Total size of top {len(largest)} files: {format_size(total_size)}")
+    typer.echo("=" * 80)
+
+
+def display_statistics(inspector: ArchiveInspector):
+    """Display detailed archive statistics.
+
+    Args:
+        inspector: ArchiveInspector instance
+    """
+    stats = inspector.statistics()
+
+    if not stats:
+        typer.echo("=" * 80)
+        typer.echo("⚠️  No statistics available")
+        typer.echo("=" * 80)
+        typer.echo("")
+        typer.echo("This archive does not contain a FILELIST with per-file metadata.")
+        typer.echo("")
+        typer.echo("To create archives with complete metadata for statistics, use:")
+        typer.echo("  coldstore freeze <source> <destination>")
+        typer.echo("")
+        typer.echo("Statistics available with FILELIST:")
+        typer.echo("  • File type distribution (by extension)")
+        typer.echo("  • Size distribution (bucketed by file size)")
+        typer.echo("  • Directory sizes (top-level directories)")
+        return
+
+    typer.echo("=" * 80)
+    typer.echo("📊 Archive Statistics")
+    typer.echo("=" * 80)
+    typer.echo("")
+
+    # File types
+    if "file_types" in stats:
+        file_types = stats["file_types"]
+        typer.echo("File Types:")
+        typer.echo("")
+
+        # Sort by size
+        sorted_types = sorted(
+            file_types.items(),
+            key=lambda x: x[1]["size_bytes"],
+            reverse=True,
+        )
+
+        for ext, data in sorted_types[:15]:  # Show top 15
+            count = data["count"]
+            size = data["size_bytes"]
+            ext_display = f".{ext}" if ext != "(no extension)" else ext
+            typer.echo(f"  {ext_display:<20} {count:>6} files  {format_size(size):>10}")
+
+        typer.echo("")
+
+    # Size distribution
+    if "size_distribution" in stats:
+        size_dist = stats["size_distribution"]
+        typer.echo("Size Distribution:")
+        typer.echo("")
+
+        for bucket, count in size_dist.items():
+            typer.echo(f"  {bucket:<15} {count:>6} files")
+
+        typer.echo("")
+
+    # Top directories
+    if "directory_sizes" in stats:
+        dir_sizes = stats["directory_sizes"]
+        if dir_sizes:
+            typer.echo("Top Directories by Size:")
+            typer.echo("")
+
+            for dir_name, size in dir_sizes.items():
+                typer.echo(f"  {dir_name:<30} {format_size(size):>10}")
+
+    typer.echo("=" * 80)
 
 
 if __name__ == "__main__":
