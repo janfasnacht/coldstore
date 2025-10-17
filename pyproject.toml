@@ -23,7 +23,7 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-coldstore = "coldstore.cli.main:main"
+coldstore = "coldstore.cli.app:app"
 
 
 [tool.ruff]

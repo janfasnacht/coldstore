@@ -20,10 +20,12 @@ class TestArchiveBuilderBasics:
         (source / "file1.txt").write_text("content1")
         (source / "file2.txt").write_text("content2")
 
-        # Create archive
+        # Create archive (disable manifest/filelist for this basic test)
         archive_path = tmp_path / "test.tar.gz"
         scanner = FileScanner(source)
-        builder = ArchiveBuilder(archive_path)
+        builder = ArchiveBuilder(
+            archive_path, generate_filelist=False, generate_manifest=False
+        )
 
         result = builder.create_archive(scanner)
 
@@ -208,7 +210,12 @@ class TestCompressionLevels:
 
         archive_path = tmp_path / "test.tar.gz"
         scanner = FileScanner(source)
-        builder = ArchiveBuilder(archive_path, compression_level=9)
+        builder = ArchiveBuilder(
+            archive_path,
+            compression_level=9,
+            generate_filelist=False,
+            generate_manifest=False,
+        )
 
         result = builder.create_archive(scanner)
 
@@ -327,16 +334,26 @@ class TestDeterministicOrdering:
         (source / "aaa.txt").write_text("first alphabetically")
         (source / "mmm.txt").write_text("middle")
 
-        # Create first archive
+        # Create first archive (disable manifest for deterministic test)
         archive1 = tmp_path / "archive1.tar.gz"
         scanner1 = FileScanner(source)
-        builder1 = ArchiveBuilder(archive1, compression_level=6)
+        builder1 = ArchiveBuilder(
+            archive1,
+            compression_level=6,
+            generate_filelist=False,
+            generate_manifest=False,
+        )
         result1 = builder1.create_archive(scanner1)
 
         # Create second archive
         archive2 = tmp_path / "archive2.tar.gz"
         scanner2 = FileScanner(source)
-        builder2 = ArchiveBuilder(archive2, compression_level=6)
+        builder2 = ArchiveBuilder(
+            archive2,
+            compression_level=6,
+            generate_filelist=False,
+            generate_manifest=False,
+        )
         result2 = builder2.create_archive(scanner2)
 
         # SHA256 hashes should match (deterministic)
@@ -518,7 +535,9 @@ class TestIntegrationWithScanner:
 
         archive_path = tmp_path / "test.tar.gz"
         scanner = FileScanner(source)
-        builder = ArchiveBuilder(archive_path)
+        builder = ArchiveBuilder(
+            archive_path, generate_filelist=False, generate_manifest=False
+        )
 
         builder.create_archive(scanner)
 
@@ -566,7 +585,9 @@ class TestFILELISTGeneration:
 
         archive_path = tmp_path / "test.tar.gz"
         scanner = FileScanner(source)
-        builder = ArchiveBuilder(archive_path, generate_filelist=False)
+        builder = ArchiveBuilder(
+            archive_path, generate_filelist=False, generate_manifest=False
+        )
 
         result = builder.create_archive(scanner)
 
@@ -574,7 +595,7 @@ class TestFILELISTGeneration:
         assert "filelist_sha256" not in result or result["filelist_sha256"] is None
         assert "file_metadata" not in result or result["file_metadata"] == []
 
-        # Verify no COLDSTORE directory in archive
+        # Verify no COLDSTORE directory in archive (both features disabled)
         with tarfile.open(archive_path, "r:gz") as tar:
             names = [m.name for m in tar.getmembers()]
             assert not any("COLDSTORE" in name for name in names)

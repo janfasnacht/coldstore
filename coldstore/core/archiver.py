@@ -46,8 +46,8 @@ class ArchiveBuilder:
         output_path: Path,
         compression_level: int = DEFAULT_COMPRESSION_LEVEL,
         compute_sha256: bool = True,
-        generate_filelist: bool = False,  # TODO: Change to True once stable
-        generate_manifest: bool = False,  # TODO: Change to True once stable
+        generate_filelist: bool = True,
+        generate_manifest: bool = True,
         event_metadata: Optional[EventMetadata] = None,
     ):
         """
@@ -57,8 +57,8 @@ class ArchiveBuilder:
             output_path: Path where archive will be written
             compression_level: Gzip compression level (0-9, default: 6)
             compute_sha256: Whether to compute SHA256 hash of archive (default: True)
-            generate_filelist: Whether to generate FILELIST.csv.gz (default: False)
-            generate_manifest: Whether to generate MANIFEST files (default: False)
+            generate_filelist: Whether to generate FILELIST.csv.gz (default: True)
+            generate_manifest: Whether to generate MANIFEST files (default: True)
             event_metadata: Optional event metadata for manifest
                 (milestone, notes, etc.)
 
