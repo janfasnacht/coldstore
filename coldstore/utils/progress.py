@@ -3,6 +3,8 @@
 import time
 from typing import Optional
 
+from coldstore.utils.formatters import format_size, format_time
+
 
 class ProgressTracker:
     """
@@ -124,7 +126,7 @@ class ProgressTracker:
             avg_time_per_item = elapsed / self.items_processed
             remaining_items = self.total_items - self.items_processed
             eta_seconds = avg_time_per_item * remaining_items
-            eta_str = self._format_time(eta_seconds)
+            eta_str = format_time(eta_seconds)
         else:
             eta_str = "calculating..."
 
@@ -132,7 +134,7 @@ class ProgressTracker:
         items_per_sec = self.items_processed / elapsed if elapsed > 0 else 0
 
         # Format elapsed time
-        elapsed_str = self._format_time(elapsed)
+        elapsed_str = format_time(elapsed)
 
         # Create progress bar
         filled = int(self.bar_width * percentage / 100)
@@ -146,7 +148,7 @@ class ProgressTracker:
 
         # Add byte count if available
         if self.total_bytes is not None and self.bytes_processed > 0:
-            progress_parts.append(f"| {self._format_size(self.bytes_processed)}")
+            progress_parts.append(f"| {format_size(self.bytes_processed)}")
 
         # Add timing info
         progress_parts.append(f"| Elapsed: {elapsed_str}")
@@ -171,49 +173,3 @@ class ProgressTracker:
 
         # Track display length for cleanup
         self.last_display_length = len(progress_line.split("\n")[-1])
-
-    @staticmethod
-    def _format_time(seconds: float) -> str:
-        """
-        Format time duration in human-readable format.
-
-        Args:
-            seconds: Duration in seconds
-
-        Returns:
-            Formatted string (e.g., "2m 15s", "45s", "1h 23m")
-        """
-        seconds = int(seconds)
-        if seconds < 60:
-            return f"{seconds}s"
-        elif seconds < 3600:
-            minutes = seconds // 60
-            secs = seconds % 60
-            if secs > 0:
-                return f"{minutes}m {secs}s"
-            return f"{minutes}m"
-        else:
-            hours = seconds // 3600
-            minutes = (seconds % 3600) // 60
-            if minutes > 0:
-                return f"{hours}h {minutes}m"
-            return f"{hours}h"
-
-    @staticmethod
-    def _format_size(bytes_: int) -> str:
-        """
-        Format bytes as human-readable size.
-
-        Args:
-            bytes_: Size in bytes
-
-        Returns:
-            Formatted string (e.g., "1.5 GB", "42.3 MB")
-        """
-        for unit in ["B", "KB", "MB", "GB", "TB"]:
-            if bytes_ < 1024.0:
-                if unit == "B":
-                    return f"{int(bytes_)} {unit}"
-                return f"{bytes_:.1f} {unit}"
-            bytes_ /= 1024.0
-        return f"{bytes_:.1f} PB"

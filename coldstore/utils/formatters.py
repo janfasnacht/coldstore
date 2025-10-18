@@ -4,24 +4,70 @@ import re
 from typing import Optional
 
 
-def get_human_size(size_bytes: int) -> str:
-    """Convert byte size to human readable format.
+def format_size(bytes_: int) -> str:
+    """Format bytes as human-readable size.
 
     Args:
-        size_bytes: Size in bytes
+        bytes_: Size in bytes
 
     Returns:
-        Human-readable size string (e.g., "1.23 GB")
+        Formatted string (e.g., "1.5 GB", "42.3 MB")
+
+    Examples:
+        >>> format_size(0)
+        '0 B'
+        >>> format_size(1024)
+        '1.0 KB'
+        >>> format_size(1536)
+        '1.5 KB'
+        >>> format_size(1073741824)
+        '1.0 GB'
     """
-    if size_bytes == 0:
-        return "0B"
-    units = ["B", "KB", "MB", "GB", "TB", "PB"]
-    i = 0
-    size = float(size_bytes)
-    while size >= 1024 and i < len(units) - 1:
-        size /= 1024
-        i += 1
-    return f"{size:.2f} {units[i]}"
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if bytes_ < 1024.0:
+            if unit == "B":
+                return f"{int(bytes_)} {unit}"
+            return f"{bytes_:.1f} {unit}"
+        bytes_ /= 1024.0
+    return f"{bytes_:.1f} PB"
+
+
+# Backward compatibility alias
+get_human_size = format_size
+
+
+def format_time(seconds: float) -> str:
+    """Format time duration in human-readable format.
+
+    Args:
+        seconds: Duration in seconds
+
+    Returns:
+        Formatted string (e.g., "2m 15s", "45s", "1h 23m")
+
+    Examples:
+        >>> format_time(45)
+        '45s'
+        >>> format_time(135)
+        '2m 15s'
+        >>> format_time(3723)
+        '1h 2m'
+    """
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    elif seconds < 3600:
+        minutes = seconds // 60
+        secs = seconds % 60
+        if secs > 0:
+            return f"{minutes}m {secs}s"
+        return f"{minutes}m"
+    else:
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        if minutes > 0:
+            return f"{hours}h {minutes}m"
+        return f"{hours}h"
 
 
 def _get_size_multiplier(unit: str) -> int:

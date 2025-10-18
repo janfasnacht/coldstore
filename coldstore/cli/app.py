@@ -15,7 +15,7 @@ from coldstore.core.inspector import ArchiveInspector
 from coldstore.core.manifest import EventMetadata
 from coldstore.core.scanner import FileScanner
 from coldstore.core.verifier import ArchiveVerifier
-from coldstore.utils.formatters import parse_size
+from coldstore.utils.formatters import format_size, format_time, parse_size
 from coldstore.utils.preview import display_dry_run_preview, generate_dry_run_preview
 from coldstore.utils.progress import ProgressTracker
 
@@ -149,24 +149,6 @@ def validate_paths(source: Path, destination: Path) -> tuple[Path, Path]:
         raise typer.Exit(1)
 
     return source, destination
-
-
-def format_size(bytes_: int) -> str:
-    """Format bytes as human-readable size.
-
-    Args:
-        bytes_: Size in bytes
-
-    Returns:
-        Formatted string (e.g., "1.5 GB", "42.3 MB")
-    """
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if bytes_ < 1024.0:
-            if unit == "B":
-                return f"{int(bytes_)} {unit}"
-            return f"{bytes_:.1f} {unit}"
-        bytes_ /= 1024.0
-    return f"{bytes_:.1f} PB"
 
 
 @app.command()
@@ -591,12 +573,12 @@ def verify(  # noqa: C901
                     avg_time_per_file = elapsed / files_verified
                     remaining_files = total_files - files_verified
                     eta_seconds = avg_time_per_file * remaining_files
-                    eta_str = format_time_duration(eta_seconds)
+                    eta_str = format_time(eta_seconds)
                 else:
                     eta_str = "calculating..."
 
                 # Format elapsed time
-                elapsed_str = format_time_duration(elapsed)
+                elapsed_str = format_time(elapsed)
 
                 # Create progress bar
                 bar_width = 20
@@ -647,27 +629,6 @@ def verify(  # noqa: C901
         raise typer.Exit(1)
 
 
-def format_time_duration(seconds: float) -> str:
-    """Format time duration in human-readable format.
-
-    Args:
-        seconds: Duration in seconds
-
-    Returns:
-        Formatted string (e.g., "2m 15s", "45s", "1h 23m")
-    """
-    if seconds < 60:
-        return f"{int(seconds)}s"
-    elif seconds < 3600:
-        minutes = int(seconds / 60)
-        secs = int(seconds % 60)
-        return f"{minutes}m {secs}s"
-    else:
-        hours = int(seconds / 3600)
-        minutes = int((seconds % 3600) / 60)
-        return f"{hours}h {minutes}m"
-
-
 def display_verification_result(  # noqa: C901
     result,
     archive_path: Path,
@@ -709,7 +670,7 @@ def display_verification_result(  # noqa: C901
             if throughput:
                 typer.echo(f"Throughput:  {throughput:.1f} MB/s")
 
-        typer.echo(f"Duration:    {format_time_duration(result.elapsed_seconds)}")
+        typer.echo(f"Duration:    {format_time(result.elapsed_seconds)}")
 
         if result.warnings:
             typer.echo("")
@@ -743,7 +704,7 @@ def display_verification_result(  # noqa: C901
                     size_str = f"{result.bytes_verified / (1024 * 1024 * 1024):.2f} GB"
                 typer.echo(f"Data:        {size_str}")
 
-        typer.echo(f"Duration:    {format_time_duration(result.elapsed_seconds)}")
+        typer.echo(f"Duration:    {format_time(result.elapsed_seconds)}")
 
         typer.echo("")
         typer.echo("❌ Errors:")

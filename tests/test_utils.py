@@ -10,12 +10,13 @@ class TestFormatters:
 
     def test_get_human_size(self):
         """Test human-readable size formatting."""
-        assert get_human_size(0) == "0B"
-        assert get_human_size(512) == "512.00 B"
-        assert get_human_size(1024) == "1.00 KB"
-        assert get_human_size(1024 * 1024) == "1.00 MB"
-        assert get_human_size(1024 * 1024 * 1024) == "1.00 GB"
-        assert get_human_size(1536) == "1.50 KB"  # 1.5 KB
+        # Updated to match new format_size implementation (consistent spacing)
+        assert get_human_size(0) == "0 B"
+        assert get_human_size(512) == "512 B"
+        assert get_human_size(1024) == "1.0 KB"
+        assert get_human_size(1024 * 1024) == "1.0 MB"
+        assert get_human_size(1024 * 1024 * 1024) == "1.0 GB"
+        assert get_human_size(1536) == "1.5 KB"  # 1.5 KB
 
     def test_generate_readme(self):
         """Test README generation."""

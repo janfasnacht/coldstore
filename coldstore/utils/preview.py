@@ -7,6 +7,7 @@ from typing import Optional
 
 from coldstore.core.scanner import FileScanner
 from coldstore.metadata.git import collect_git_metadata
+from coldstore.utils.formatters import format_size, format_time
 
 # Compression ratio estimates (fallback if sampling fails)
 # Based on gzip compression of typical source code, documentation, and data files
@@ -185,32 +186,6 @@ def estimate_time(uncompressed_bytes: int) -> tuple[int, int]:
     return estimated_seconds, max_seconds
 
 
-def format_time_estimate(seconds: int) -> str:
-    """
-    Format time estimate as human-readable string.
-
-    Args:
-        seconds: Time in seconds
-
-    Returns:
-        Formatted string (e.g., "2m 15s", "45s", "1h 23m")
-    """
-    if seconds < 60:
-        return f"{seconds}s"
-    elif seconds < 3600:
-        minutes = seconds // 60
-        secs = seconds % 60
-        if secs > 0:
-            return f"{minutes}m {secs}s"
-        return f"{minutes}m"
-    else:
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        if minutes > 0:
-            return f"{hours}h {minutes}m"
-        return f"{hours}h"
-
-
 def find_largest_files(scanner: FileScanner, n: int = 10) -> list[dict]:
     """
     Find the N largest files from scanner.
@@ -318,8 +293,8 @@ def generate_dry_run_preview(
     time_est, time_max = estimate_time(uncompressed_size)
 
     # Format time range
-    time_est_str = format_time_estimate(time_est)
-    time_max_str = format_time_estimate(time_max)
+    time_est_str = format_time(time_est)
+    time_max_str = format_time(time_max)
 
     return {
         "source": source,
@@ -345,25 +320,6 @@ def generate_dry_run_preview(
             "display_range": f"{time_est_str}-{time_max_str}",
         },
     }
-
-
-def format_size(bytes_: int) -> str:
-    """
-    Format bytes as human-readable size.
-
-    Args:
-        bytes_: Size in bytes
-
-    Returns:
-        Formatted string (e.g., "1.5 GB", "42.3 MB")
-    """
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if bytes_ < 1024.0:
-            if unit == "B":
-                return f"{int(bytes_)} {unit}"
-            return f"{bytes_:.1f} {unit}"
-        bytes_ /= 1024.0
-    return f"{bytes_:.1f} PB"
 
 
 def _display_git_metadata(git: dict) -> None:

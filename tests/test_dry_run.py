@@ -3,11 +3,11 @@
 
 
 from coldstore.core.scanner import FileScanner
+from coldstore.utils.formatters import format_time
 from coldstore.utils.preview import (
     estimate_compressed_size,
     estimate_time,
     find_largest_files,
-    format_time_estimate,
     generate_dry_run_preview,
     sample_compression_ratio,
 )
@@ -95,22 +95,22 @@ class TestTimeEstimation:
 
     def test_format_time_estimate_seconds(self):
         """Test formatting time under 60 seconds."""
-        assert format_time_estimate(30) == "30s"
-        assert format_time_estimate(59) == "59s"
+        assert format_time(30) == "30s"
+        assert format_time(59) == "59s"
 
     def test_format_time_estimate_minutes(self):
         """Test formatting time in minutes."""
-        assert format_time_estimate(60) == "1m"
-        assert format_time_estimate(90) == "1m 30s"
-        assert format_time_estimate(135) == "2m 15s"
-        assert format_time_estimate(180) == "3m"
+        assert format_time(60) == "1m"
+        assert format_time(90) == "1m 30s"
+        assert format_time(135) == "2m 15s"
+        assert format_time(180) == "3m"
 
     def test_format_time_estimate_hours(self):
         """Test formatting time in hours."""
-        assert format_time_estimate(3600) == "1h"
-        assert format_time_estimate(3660) == "1h 1m"
-        assert format_time_estimate(7200) == "2h"
-        assert format_time_estimate(5400) == "1h 30m"
+        assert format_time(3600) == "1h"
+        assert format_time(3660) == "1h 1m"
+        assert format_time(7200) == "2h"
+        assert format_time(5400) == "1h 30m"
 
 
 class TestLargestFilesFinder:
