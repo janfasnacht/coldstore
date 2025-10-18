@@ -27,12 +27,12 @@ from coldstore.core.verifier import ArchiveVerifier
 class TestInvalidInputs:
     """Test handling of malformed/invalid arguments across all commands."""
 
-    @pytest.mark.skip(reason="Empty string validation not yet implemented - Issue #23")
     def test_empty_string_paths(self, tmp_path):
         """Test that empty string paths are rejected."""
         runner = CliRunner()
         result = runner.invoke(app, ["freeze", "", str(tmp_path)])
         assert result.exit_code != 0
+        assert "cannot be empty" in result.output
 
     def test_special_characters_in_archive_names(self, tmp_path):
         """Test special characters in archive names."""
@@ -876,9 +876,6 @@ class TestCLIEdgeCases:
         # Should succeed but milestone won't be stored
         assert result.exit_code == 0
 
-    @pytest.mark.skip(
-        reason="Dry-run with --no-manifest has GitMetadata.get() bug - Issue #23"
-    )
     def test_dry_run_with_all_features_disabled(self, tmp_path):
         """Test --dry-run with all metadata disabled."""
         runner = CliRunner()

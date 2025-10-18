@@ -98,6 +98,17 @@ def validate_paths(source: Path, destination: Path) -> tuple[Path, Path]:
     Raises:
         typer.Exit: If validation fails
     """
+    # Check for empty path strings
+    if str(source) == "" or str(source) == ".":
+        typer.echo("❌ Source path cannot be empty", err=True)
+        typer.echo("   Usage: coldstore freeze <source> <destination>", err=True)
+        raise typer.Exit(1)
+
+    if str(destination) == "" or str(destination) == ".":
+        typer.echo("❌ Destination path cannot be empty", err=True)
+        typer.echo("   Usage: coldstore freeze <source> <destination>", err=True)
+        raise typer.Exit(1)
+
     # Resolve and validate source
     try:
         source = source.expanduser().resolve()

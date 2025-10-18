@@ -322,20 +322,24 @@ def generate_dry_run_preview(
     }
 
 
-def _display_git_metadata(git: dict) -> None:
-    """Display git metadata section of dry-run preview."""
+def _display_git_metadata(git) -> None:
+    """Display git metadata section of dry-run preview.
+
+    Args:
+        git: GitMetadata Pydantic model or None
+    """
     import typer
 
-    if git and git.get("present"):
+    if git and git.present:
         typer.echo("Git metadata:")
-        if git.get("commit"):
-            typer.echo(f"  Commit:  {git['commit'][:12]}")
-        if git.get("branch"):
-            typer.echo(f"  Branch:  {git['branch']}")
-        if git.get("tag"):
-            typer.echo(f"  Tag:     {git['tag']}")
+        if git.commit:
+            typer.echo(f"  Commit:  {git.commit[:12]}")
+        if git.branch:
+            typer.echo(f"  Branch:  {git.branch}")
+        if git.tag:
+            typer.echo(f"  Tag:     {git.tag}")
 
-        dirty = git.get("dirty", False)
+        dirty = git.dirty if git.dirty is not None else False
         typer.echo(f"  Dirty:   {dirty}")
         typer.echo("")
     else:
