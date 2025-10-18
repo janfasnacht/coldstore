@@ -1,7 +1,8 @@
-"""Coldstore - Cold storage archiving utility for long-term preservation."""
+"""Coldstore - Event-driven project archival with comprehensive metadata."""
 
-__version__ = "0.1.0"
+__version__ = "1.0.0-dev"
 
-from .core.archive import create_coldstore_archive
+# Main entry point is CLI: coldstore freeze/verify/inspect
+# No programmatic API exported yet - use CLI for all operations
 
-__all__ = ["create_coldstore_archive"]
+__all__: list[str] = []
