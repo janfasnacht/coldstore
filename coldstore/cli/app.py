@@ -85,7 +85,7 @@ def generate_archive_filename(custom_name: Optional[str] = None) -> str:
     return f"coldstore_{timestamp}_{random_suffix}.tar.gz"
 
 
-def validate_paths(source: Path, destination: Path) -> tuple[Path, Path]:
+def validate_paths(source: Path, destination: Path) -> tuple[Path, Path]:  # noqa: C901
     """Validate and resolve source and destination paths.
 
     Args:
@@ -467,7 +467,8 @@ def freeze(  # noqa: C901
         typer.echo(f"\n❌ Error creating archive: {e}", err=True)
         logger.exception("Archive creation failed")
         typer.echo(
-            "   Common causes: insufficient disk space, permission errors, or I/O failures",
+            "   Common causes: insufficient disk space, "
+            "permission errors, or I/O failures",
             err=True,
         )
         # Clean up partial archive
@@ -999,10 +1000,13 @@ def display_summary(inspector: ArchiveInspector, archive_path: Path):  # noqa: C
         if ratio < 0:
             # Expansion occurred (uncompressible data)
             expansion = abs(saved)
-            typer.echo(f"  Ratio:         0% (uncompressible data)")
-            typer.echo(f"  Note:          Archive is {format_size(expansion)} larger than source")
+            typer.echo("  Ratio:         0% (uncompressible data)")
+            typer.echo(
+                f"  Note:          Archive is {format_size(expansion)} "
+                "larger than source"
+            )
         elif ratio == 0:
-            typer.echo(f"  Ratio:         0% (no compression)")
+            typer.echo("  Ratio:         0% (no compression)")
         else:
             typer.echo(f"  Ratio:         {ratio}% space saved")
             typer.echo(f"  Saved:         {format_size(saved)}")

@@ -253,8 +253,8 @@ class ArchiveVerifier:
         - Validate tar structure integrity
 
         Args:
-            progress_callback: Optional callback(files_verified, total_files, current_file)
-                called after each file is verified
+            progress_callback: Optional callback receiving
+                (files_verified, total_files, current_file) called after each file
             fail_fast: If True, stop at first verification error
 
         Returns:
@@ -406,7 +406,8 @@ class ArchiveVerifier:
         # Add summary if there were file errors
         if files_with_errors:
             result.add_warning(
-                f"{len(files_with_errors)} file(s) failed verification out of {files_verified} checked"
+                f"{len(files_with_errors)} file(s) failed verification "
+                f"out of {files_verified} checked"
             )
 
         logger.debug(
@@ -529,7 +530,8 @@ class ArchiveVerifier:
         # Validate manifest version
         if self.manifest.manifest_version != "1.0":
             result.add_warning(
-                f"Manifest version {self.manifest.manifest_version} may not be fully supported"
+                f"Manifest version {self.manifest.manifest_version} "
+                "may not be fully supported"
             )
 
         return True
@@ -556,7 +558,8 @@ class ArchiveVerifier:
         if actual_size != expected_size:
             result.add_check(
                 False,
-                f"Archive size mismatch: expected {expected_size} bytes, got {actual_size} bytes",
+                f"Archive size mismatch: expected {expected_size} bytes, "
+                f"got {actual_size} bytes",
             )
             return False
 

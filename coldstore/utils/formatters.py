@@ -1,7 +1,6 @@
 """Formatting utilities for coldstore."""
 
 import re
-from typing import Optional
 
 
 def format_size(bytes_: int) -> str:

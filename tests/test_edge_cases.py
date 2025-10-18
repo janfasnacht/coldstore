@@ -8,10 +8,7 @@ Issue #23 Phase 3: Edge Case Testing
 
 import errno
 import json
-import os
-import sys
 import tarfile
-from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -19,7 +16,6 @@ from typer.testing import CliRunner
 from coldstore.cli.app import app
 from coldstore.core.archiver import ArchiveBuilder
 from coldstore.core.inspector import ArchiveInspector
-from coldstore.core.manifest import ColdstoreManifest
 from coldstore.core.scanner import FileScanner
 from coldstore.core.verifier import ArchiveVerifier
 
@@ -462,7 +458,9 @@ class TestCorruptedArchives:
 class TestResourceLimits:
     """Test behavior under resource constraints."""
 
-    @pytest.mark.skip(reason="Disk space simulation requires different approach - Issue #23")
+    @pytest.mark.skip(
+        reason="Disk space simulation requires different approach - Issue #23"
+    )
     def test_insufficient_disk_space_simulation(self, tmp_path, monkeypatch):
         """Test behavior when disk space runs out during freeze."""
         source = tmp_path / "source"
@@ -744,7 +742,6 @@ class TestBoundaryValues:
         result = builder.create_archive(scanner)
 
         # Archive may be larger than source due to overhead
-        source_size = 1000
         archive_size = result["size_bytes"]
 
         # This is expected for incompressible data

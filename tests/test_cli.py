@@ -1,9 +1,15 @@
 """Tests for Typer-based CLI."""
 
+import re
 
 from typer.testing import CliRunner
 
 from coldstore.cli.app import app
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    return re.sub(r'\x1b\[[0-9;]*m', '', text)
 
 
 class TestCLIStructure:
@@ -15,9 +21,10 @@ class TestCLIStructure:
         result = runner.invoke(app, ["--help"])
 
         assert result.exit_code == 0
-        assert "coldstore" in result.output.lower()
-        assert "freeze" in result.output
-        assert "Event-driven project archival" in result.output
+        output = strip_ansi(result.output)
+        assert "coldstore" in output.lower()
+        assert "freeze" in output
+        assert "Event-driven project archival" in output
 
     def test_version_flag(self):
         """Test --version flag."""
@@ -25,7 +32,8 @@ class TestCLIStructure:
         result = runner.invoke(app, ["--version"])
 
         assert result.exit_code == 0
-        assert "coldstore v1.0.0-dev" in result.output
+        output = strip_ansi(result.output)
+        assert "coldstore v1.0.0-dev" in output
 
     def test_freeze_command_exists(self):
         """Test freeze command is available."""
@@ -33,9 +41,10 @@ class TestCLIStructure:
         result = runner.invoke(app, ["freeze", "--help"])
 
         assert result.exit_code == 0
-        assert "freeze" in result.output.lower()
-        assert "SOURCE" in result.output
-        assert "DESTINATION" in result.output
+        output = strip_ansi(result.output)
+        assert "freeze" in output.lower()
+        assert "SOURCE" in output
+        assert "DESTINATION" in output
 
     def test_freeze_help_shows_all_options(self):
         """Test freeze help shows all expected options."""
@@ -44,22 +53,25 @@ class TestCLIStructure:
 
         assert result.exit_code == 0
 
+        # Strip ANSI codes for consistent checking across environments
+        output = strip_ansi(result.output)
+
         # Event metadata options
-        assert "--milestone" in result.output
-        assert "--note" in result.output
-        assert "--contact" in result.output
+        assert "--milestone" in output
+        assert "--note" in output
+        assert "--contact" in output
 
         # Output control
-        assert "--compression-level" in result.output
-        assert "--name" in result.output
+        assert "--compression-level" in output
+        assert "--name" in output
 
         # Filtering
-        assert "--exclude" in result.output
+        assert "--exclude" in output
 
         # Advanced toggles
-        assert "--no-manifest" in result.output
-        assert "--no-filelist" in result.output
-        assert "--no-sha256" in result.output
+        assert "--no-manifest" in output
+        assert "--no-filelist" in output
+        assert "--no-sha256" in output
 
         # Runtime (--log-level is hidden, so not in help)
 
