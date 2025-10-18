@@ -16,6 +16,7 @@ from coldstore.core.manifest import EventMetadata
 from coldstore.core.scanner import FileScanner
 from coldstore.core.verifier import ArchiveVerifier
 from coldstore.utils.formatters import parse_size
+from coldstore.utils.preview import display_dry_run_preview, generate_dry_run_preview
 
 app = typer.Typer(
     name="coldstore",
@@ -211,6 +212,11 @@ def freeze(  # noqa: C901
         bool,
         typer.Option("--no-sha256", help="Disable SHA256 checksum computation"),
     ] = False,
+    # Dry-run mode
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Preview operation without creating files"),
+    ] = False,
     # Runtime options (hidden from help - for developers)
     log_level: Annotated[
         str,
@@ -344,6 +350,24 @@ def freeze(  # noqa: C901
     except (OSError, PermissionError) as e:
         typer.echo(f"❌ Error scanning source directory: {e}", err=True)
         raise typer.Exit(1) from e
+
+    # === STEP 5.5: Handle dry-run mode ===
+    if dry_run:
+        # Generate and display preview without creating any files
+        preview = generate_dry_run_preview(
+            scanner=scanner,
+            source=source,
+            destination=destination,
+            archive_filename=archive_filename,
+            compression_level=compression_level,
+            milestone=milestone,
+            exclude_patterns=list(exclude) if exclude else None,
+        )
+
+        display_dry_run_preview(preview)
+
+        # Exit successfully without creating archive
+        raise typer.Exit(0)
 
     # === STEP 6: Create archive with ArchiveBuilder ===
     try:
