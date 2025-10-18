@@ -5,8 +5,8 @@ import io
 from pathlib import Path
 from typing import Optional
 
+from coldstore.core.collectors import collect_git_metadata
 from coldstore.core.scanner import FileScanner
-from coldstore.metadata.git import collect_git_metadata
 from coldstore.utils.formatters import format_size, format_time
 
 # Compression ratio estimates (fallback if sampling fails)
