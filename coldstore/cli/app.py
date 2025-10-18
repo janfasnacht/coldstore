@@ -17,6 +17,7 @@ from coldstore.core.scanner import FileScanner
 from coldstore.core.verifier import ArchiveVerifier
 from coldstore.utils.formatters import parse_size
 from coldstore.utils.preview import display_dry_run_preview, generate_dry_run_preview
+from coldstore.utils.progress import ProgressTracker
 
 app = typer.Typer(
     name="coldstore",
@@ -115,6 +116,7 @@ def validate_paths(source: Path, destination: Path) -> tuple[Path, Path]:
     # Check source is readable
     if not source.stat().st_mode & 0o400:  # Check read permission
         typer.echo(f"❌ Source directory is not readable: {source}", err=True)
+        typer.echo("   Fix: chmod +r <directory>", err=True)
         raise typer.Exit(1)
 
     # Resolve and validate destination
@@ -131,6 +133,10 @@ def validate_paths(source: Path, destination: Path) -> tuple[Path, Path]:
             typer.echo(f"📁 Created destination directory: {destination}")
         except (OSError, PermissionError) as e:
             typer.echo(f"❌ Cannot create destination directory: {e}", err=True)
+            typer.echo(
+                "   Try creating the parent directory manually or check permissions",
+                err=True,
+            )
             raise typer.Exit(1) from e
     elif not destination.is_dir():
         typer.echo(f"❌ Destination path is not a directory: {destination}", err=True)
@@ -139,6 +145,7 @@ def validate_paths(source: Path, destination: Path) -> tuple[Path, Path]:
     # Check destination is writable
     if not destination.stat().st_mode & 0o200:  # Check write permission
         typer.echo(f"❌ Destination directory is not writable: {destination}", err=True)
+        typer.echo("   Fix: chmod +w <directory>", err=True)
         raise typer.Exit(1)
 
     return source, destination
@@ -372,22 +379,32 @@ def freeze(  # noqa: C901
     # === STEP 6: Create archive with ArchiveBuilder ===
     try:
         typer.echo("📦 Creating archive...")
+        typer.echo("")
 
-        # Progress tracking
-        progress_counter = {"current": 0}
+        # Initialize progress tracker
+        progress_tracker = None
+        if logger.level <= logging.INFO:
+            progress_tracker = ProgressTracker(
+                total_items=counts["total"],
+                total_bytes=total_size,
+                display_func=lambda msg, end="": typer.echo(msg, nl=(end != "")),
+            )
 
-        def progress_callback(items_processed: int, total_items: int):
-            """Simple progress callback."""
-            progress_counter["current"] = items_processed
-            # Only show progress every 10 items to avoid flooding output
-            if items_processed % 10 == 0 or items_processed == total_items:
-                percentage = (
-                    (items_processed / total_items * 100) if total_items > 0 else 0
+            def progress_callback(
+                items_processed: int,
+                total_items: int,
+                current_path: str,
+                bytes_written: int,
+            ):
+                """Progress callback for ArchiveBuilder."""
+                progress_tracker.update(
+                    items_processed=items_processed,
+                    bytes_processed=bytes_written,
+                    current_item=current_path,
                 )
-                typer.echo(
-                    f"   Progress: {items_processed}/{total_items} "
-                    f"items ({percentage:.1f}%)"
-                )
+
+        else:
+            progress_callback = None
 
         # Initialize ArchiveBuilder
         builder = ArchiveBuilder(
@@ -403,10 +420,12 @@ def freeze(  # noqa: C901
         result = builder.create_archive(
             scanner=scanner,
             arcname_root=source.name,
-            progress_callback=(
-                progress_callback if logger.level <= logging.INFO else None
-            ),
+            progress_callback=progress_callback,
         )
+
+        # Finish progress tracking
+        if progress_tracker:
+            progress_tracker.finish()
 
         typer.echo("")
         typer.echo("=" * 60)
@@ -431,9 +450,13 @@ def freeze(  # noqa: C901
         typer.echo("=" * 60)
         typer.echo("")
         typer.echo("📝 Next steps:")
+        typer.echo(f"   • Verify:  coldstore verify {archive_path}")
+        typer.echo(f"   • Inspect: coldstore inspect {archive_path}")
         if result.get("sha256_file_path"):
-            typer.echo(f"   • Verify: shasum -c {result['sha256_file_path'].name}")
-        typer.echo(f"   • Inspect: tar -tzf {archive_filename} | head")
+            typer.echo("")
+            typer.echo("   Or use standard tools:")
+            typer.echo(f"   • shasum -c {result['sha256_file_path'].name}")
+            typer.echo(f"   • tar -tzf {archive_filename} | head")
         typer.echo("")
 
     except KeyboardInterrupt:
@@ -450,6 +473,10 @@ def freeze(  # noqa: C901
     except Exception as e:
         typer.echo(f"\n❌ Error creating archive: {e}", err=True)
         logger.exception("Archive creation failed")
+        typer.echo(
+            "   Common causes: insufficient disk space, permission errors, or I/O failures",
+            err=True,
+        )
         # Clean up partial archive
         if archive_path.exists():
             try:
@@ -813,6 +840,7 @@ def inspect(  # noqa: C901
             min_size_bytes = parse_size(min_size)
         except ValueError as e:
             typer.echo(f"❌ Invalid min-size format: {e}", err=True)
+            typer.echo("   Example: --min-size 1MB or --min-size 500KB", err=True)
             raise typer.Exit(1) from None
 
     if max_size:
@@ -820,6 +848,7 @@ def inspect(  # noqa: C901
             max_size_bytes = parse_size(max_size)
         except ValueError as e:
             typer.echo(f"❌ Invalid max-size format: {e}", err=True)
+            typer.echo("   Example: --max-size 10MB or --max-size 1GB", err=True)
             raise typer.Exit(1) from None
 
     # Create inspector
@@ -993,8 +1022,18 @@ def display_summary(inspector: ArchiveInspector, archive_path: Path):  # noqa: C
 
         typer.echo(f"  Compressed:    {format_size(compressed)}")
         typer.echo(f"  Uncompressed:  {format_size(uncompressed)}")
-        typer.echo(f"  Ratio:         {ratio}% space saved")
-        typer.echo(f"  Saved:         {format_size(saved)}")
+
+        # Handle negative compression (expansion) gracefully
+        if ratio < 0:
+            # Expansion occurred (uncompressible data)
+            expansion = abs(saved)
+            typer.echo(f"  Ratio:         0% (uncompressible data)")
+            typer.echo(f"  Note:          Archive is {format_size(expansion)} larger than source")
+        elif ratio == 0:
+            typer.echo(f"  Ratio:         0% (no compression)")
+        else:
+            typer.echo(f"  Ratio:         {ratio}% space saved")
+            typer.echo(f"  Saved:         {format_size(saved)}")
 
     typer.echo("=" * 70)
 

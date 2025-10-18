@@ -100,7 +100,9 @@ class ArchiveBuilder:
         self,
         scanner: FileScanner,
         arcname_root: Optional[str] = None,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        progress_callback: Optional[
+            Callable[[int, int, str, int], None]
+        ] = None,
     ) -> dict:
         """
         Create tar.gz archive from scanned files in deterministic order.
@@ -111,8 +113,13 @@ class ArchiveBuilder:
         Args:
             scanner: FileScanner instance to get files from
             arcname_root: Root name for files in archive (default: source dir name)
-            progress_callback: Optional callback(items_processed, total_items) called
-                after each file/directory is added to archive
+            progress_callback: Optional callback called after each file/directory
+                is added to archive. Signature:
+                callback(items_processed, total_items, current_path, bytes_written)
+                - items_processed: Number of items processed so far
+                - total_items: Total number of items to process
+                - current_path: Path of item just processed (relative to source)
+                - bytes_written: Approximate bytes written to archive so far
 
         Returns:
             Dictionary with archive metadata:
@@ -198,7 +205,18 @@ class ArchiveBuilder:
                                 items_processed = (
                                     files_added + dirs_added + symlinks_added
                                 )
-                                progress_callback(items_processed, total_items)
+                                # Get approximate bytes written so far
+                                bytes_written = (
+                                    self.output_path.stat().st_size
+                                    if self.output_path.exists()
+                                    else 0
+                                )
+                                progress_callback(
+                                    items_processed,
+                                    total_items,
+                                    str(rel_path),
+                                    bytes_written,
+                                )
 
                         except OSError as e:
                             logger.warning(

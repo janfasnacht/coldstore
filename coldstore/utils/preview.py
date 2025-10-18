@@ -384,7 +384,7 @@ def _display_git_metadata(git: dict) -> None:
         typer.echo("")
     else:
         typer.echo("Git metadata:")
-        typer.echo("  Not available (git repository detection not yet implemented)")
+        typer.echo("  Not available (source is not a git repository)")
         typer.echo("")
 
 

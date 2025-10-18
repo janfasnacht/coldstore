@@ -139,8 +139,15 @@ class TestArchiveBuilderBasics:
         # Track progress callback invocations
         progress_calls = []
 
-        def progress_callback(items_processed: int, total_items: int):
-            progress_calls.append((items_processed, total_items))
+        def progress_callback(
+            items_processed: int,
+            total_items: int,
+            current_path: str,
+            bytes_written: int,
+        ):
+            progress_calls.append(
+                (items_processed, total_items, current_path, bytes_written)
+            )
 
         # Create archive with progress callback
         archive_path = tmp_path / "test.tar.gz"
@@ -158,12 +165,17 @@ class TestArchiveBuilderBasics:
         assert len(progress_calls) == 4
 
         # Verify progress calls are sequential
-        for i, (items_processed, total_items) in enumerate(progress_calls):
+        for i, (items_processed, total_items, current_path, bytes_written) in enumerate(
+            progress_calls
+        ):
             assert items_processed == i + 1  # 1-indexed
             assert total_items == 4  # Total items
+            assert isinstance(current_path, str)  # Path should be a string
+            assert isinstance(bytes_written, int)  # Bytes should be an integer
+            assert bytes_written >= 0  # Bytes should be non-negative
 
         # Final callback should report all items processed
-        final_processed, final_total = progress_calls[-1]
+        final_processed, final_total, _, _ = progress_calls[-1]
         assert final_processed == final_total
         assert final_processed == 4
 
