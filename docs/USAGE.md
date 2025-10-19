@@ -393,402 +393,118 @@ Archives include a `MANIFEST.json` file with structured metadata.
 
 ## Common Patterns
 
-### Academic Research
-
-**Paper submission with reproducibility**:
+**Academic paper submission**:
 ```bash
-coldstore freeze ~/research/project ./archives/ \
+coldstore freeze ~/research/paper ./archives/ \
     --milestone "Nature submission" \
-    --note "Includes replication code and processed data" \
-    --note "Raw data available on request (IRB restrictions)" \
-    --contact "Corresponding author: prof@university.edu" \
-    --exclude "data/raw/*" \
-    --exclude "*.pyc"
+    --note "Includes replication code and data" \
+    --contact "PI: prof@university.edu" \
+    --exclude "data/raw/*" --exclude "*.pyc"
 ```
 
-**Thesis/dissertation snapshot**:
-```bash
-coldstore freeze ~/dissertation ./archives/ \
-    --milestone "PhD dissertation defense" \
-    --note "Complete dissertation with all analysis code" \
-    --contact "Advisor: advisor@university.edu" \
-    --name "phd-dissertation-final"
-```
-
-### Grant Management
-
-**Annual deliverable**:
+**Grant deliverable**:
 ```bash
 coldstore freeze ~/grants/nsf-project ./deliverables/ \
-    --milestone "Year 2 Deliverable - NSF Award #1234567" \
-    --note "Submitted with annual progress report" \
-    --note "Data management plan compliance confirmed" \
+    --milestone "NSF Award #1234567 - Year 2" \
     --contact "PI: pi@university.edu" \
     --contact "Program Officer: po@nsf.gov" \
     --name "nsf-1234567-year2"
 ```
 
-**Quarterly snapshot**:
-```bash
-coldstore freeze ~/grants/nsf-project ./snapshots/ \
-    --milestone "NSF #1234567 - Q3 2025" \
-    --note "Preliminary results from simulation study" \
-    --contact "PI: pi@university.edu" \
-    --name "nsf-1234567-2025-q3"
-```
-
-### Project Handoffs
-
-**Team transition**:
+**Project handoff**:
 ```bash
 coldstore freeze ~/project ./handoff/ \
-    --milestone "Project handoff to Team B" \
-    --note "Documentation in /docs folder" \
-    --note "Database credentials provided separately" \
+    --milestone "Handoff to Team B" \
+    --note "See /docs for documentation" \
     --contact "New lead: alice@company.com" \
-    --contact "Former lead: bob@company.com" \
     --name "project-handoff-$(date +%Y%m)"
 ```
 
-### Compliance & Audit
-
-**Regulatory submission**:
-```bash
-coldstore freeze ~/clinical-data ./compliance/ \
-    --milestone "FDA submission Q4 2025" \
-    --note "Meets 21 CFR Part 11 requirements" \
-    --note "IRB approval #2023-456" \
-    --contact "Regulatory Affairs: compliance@pharma.com" \
-    --compression-level 9 \
-    --name "fda-submission-2025-q4"
-```
-
-### Software Releases
-
-**Version release**:
+**Software release**:
 ```bash
 coldstore freeze ~/software ./releases/ \
     --milestone "v1.0.0 release" \
-    --note "Production-ready release" \
-    --note "See CHANGELOG.md for full details" \
-    --contact "Maintainer: dev@company.com" \
     --name "software-v1.0.0" \
-    --exclude ".git" \
-    --exclude "node_modules" \
-    --exclude ".venv"
+    --exclude ".git" --exclude "node_modules" --exclude ".venv"
 ```
 
 ---
 
 ## Troubleshooting
 
-### Installation Issues
+### Installation
 
-**Problem**: `pipx install coldstore` fails
+**Command not found after install**: Add `$HOME/.local/bin` to PATH in `~/.bashrc` or `~/.zshrc`
 
-**Solution**:
-```bash
-# Ensure pipx is installed
-python3 -m pip install --user pipx
-python3 -m pipx ensurepath
+**pipx install fails**: Ensure pipx is installed with `python3 -m pip install --user pipx`
 
-# Restart shell, then:
-pipx install coldstore
-```
+### Archive Creation
 
-**Problem**: Command not found after install
+**"Source path does not exist"**: Verify path exists, use absolute paths
 
-**Solution**:
-```bash
-# Check if in PATH
-which coldstore
+**Archive larger than expected**: Use `--dry-run` to preview, add `--exclude` patterns for large files
 
-# If not found, add to PATH (add to ~/.bashrc or ~/.zshrc):
-export PATH="$PATH:$HOME/.local/bin"
-```
+**Git metadata is null**: Check `git status` in source directory, initialize Git if needed
 
----
+**Slow creation**: Use `--compression-level 1` for faster archiving
 
-### Archive Creation Issues
+### Verification
 
-**Problem**: "Source path does not exist"
+**"Archive checksum mismatch"**: Re-transfer archive, check for corruption
 
-**Solution**:
-```bash
-# Verify source path exists
-ls -la ~/project
+**"Manifest not found"**: Archive may be corrupt, verify with `tar -tzf archive.tar.gz | head`
 
-# Use absolute paths
-coldstore freeze /full/path/to/project ./archives/
-```
+### Common Errors
 
-**Problem**: "Permission denied" when creating archive
-
-**Solution**:
-```bash
-# Check destination directory permissions
-ls -ld ./archives/
-
-# Create destination if needed
-mkdir -p ./archives/
-
-# Check source directory is readable
-ls -R ~/project
-```
-
-**Problem**: Archive is much larger than expected
-
-**Solution**:
-```bash
-# Use dry-run to see what's included
-coldstore freeze ~/project ./archives/ --dry-run --milestone "Test"
-
-# Add exclusions for large files
-coldstore freeze ~/project ./archives/ \
-    --milestone "Archive" \
-    --exclude "*.log" \
-    --exclude "*.tmp" \
-    --exclude "data/cache/*"
-
-# Use lower compression for faster creation (larger file)
-coldstore freeze ~/project ./archives/ \
-    --milestone "Archive" \
-    --compression-level 1
-```
-
-**Problem**: Git metadata is `null` in manifest
-
-**Solution**:
-```bash
-# Check if Git is installed
-git --version
-
-# Check if source is a Git repository
-cd ~/project
-git status
-
-# Initialize Git if needed
-git init
-git add .
-git commit -m "Initial commit"
-```
-
-**Problem**: Archive creation is very slow
-
-**Solution**:
-```bash
-# Use faster compression (level 1)
-coldstore freeze ~/project ./archives/ \
-    --compression-level 1 \
-    --milestone "Quick archive"
-
-# Or skip per-file checksums (not recommended for integrity)
-coldstore freeze ~/project ./archives/ \
-    --milestone "Quick archive" \
-    --no-sha256
-```
-
----
-
-### Verification Issues
-
-**Problem**: "Archive checksum mismatch" after transfer
-
-**Solution**:
-```bash
-# Verify file was transferred completely
-ls -lh archive.tar.gz
-
-# Re-transfer archive
-scp ./archives/project.tar.gz server:~/
-ssh server "coldstore verify ~/project.tar.gz"
-
-# Check for network issues or corruption
-```
-
-**Problem**: "Manifest not found" during verification
-
-**Solution**:
-```bash
-# Check if archive is valid tar.gz
-tar -tzf archive.tar.gz | head
-
-# Re-create archive if corrupt
-coldstore freeze ~/project ./archives/ --milestone "Recreate"
-```
-
----
-
-### Inspection Issues
-
-**Problem**: Cannot inspect remote archive
-
-**Solution**:
-```bash
-# Method 1: SSH and inspect
-ssh server "coldstore inspect ~/archive.tar.gz"
-
-# Method 2: Download and inspect locally
-scp server:~/archive.tar.gz ./
-coldstore inspect ./archive.tar.gz
-```
-
-**Problem**: Manifest displays incorrectly
-
-**Solution**:
-```bash
-# Extract and view manifest directly
-tar -xzOf archive.tar.gz */MANIFEST.json | python -m json.tool
-```
-
----
-
-### Common Error Messages
-
-| Error | Cause | Solution |
-|-------|-------|----------|
-| "Source path does not exist" | Invalid source directory | Check path, use absolute paths |
-| "Destination is not a directory" | Destination is a file | Use directory for destination |
-| "Permission denied" | Insufficient permissions | Check file/directory permissions |
-| "Archive checksum mismatch" | File corruption or tampering | Re-transfer or re-create archive |
-| "Git command failed" | Git not installed | Install Git or ignore Git metadata |
-| "Manifest not found" | Corrupt archive | Re-create archive |
+| Error | Solution |
+|-------|----------|
+| "Source path does not exist" | Check path, use absolute paths |
+| "Destination is not a directory" | Use directory for destination |
+| "Permission denied" | Check file/directory permissions |
+| "Archive checksum mismatch" | Re-transfer or re-create archive |
+| "Git command failed" | Install Git or ignore metadata |
 
 ---
 
 ## Best Practices
 
-### Archive Naming
+### Naming
+Use descriptive names: `--name "nature-submission-2025-10"` instead of `--name "archive"`
 
-**Use descriptive, consistent names**:
+### Metadata
+Provide detailed context with `--milestone`, `--note`, and `--contact` options
+
+### Git Workflow
+Commit and tag before archiving:
 ```bash
-# Good: Descriptive and dated
---name "nature-submission-2025-10"
---name "nsf-1234567-year2-deliverable"
---name "project-handoff-team-b"
-
-# Avoid: Generic or ambiguous
---name "archive"
---name "backup"
---name "test"
-```
-
-### Metadata Documentation
-
-**Provide comprehensive context**:
-```bash
-# Good: Detailed and informative
---milestone "PNAS submission - Round 2 after reviewer comments"
---note "Addressed Reviewer 1 concerns on statistical methods"
---note "Added supplementary figures requested by Reviewer 2"
---note "Data files in /data directory, see DATA_README.md"
---contact "Corresponding author: jane.doe@university.edu"
-
-# Avoid: Minimal or vague
---milestone "Submission"
---note "Final version"
-```
-
-### Git Hygiene
-
-**Prepare repository before archiving**:
-```bash
-# Check status
-git status
-
-# Commit changes
-git add .
-git commit -m "Prepare for archival - Nature submission"
-
-# Tag milestone
-git tag -a "nature-submission" -m "Nature Neuroscience submission"
-
-# Push to remote (ensures Git URL is accessible)
+git add . && git commit -m "Prepare for archival"
+git tag -a "submission-v1" -m "Milestone tag"
 git push origin main --tags
-
-# Then create archive
-coldstore freeze . ./archives/ --milestone "Nature submission"
+coldstore freeze . ./archives/ --milestone "Submission"
 ```
 
-### Exclusion Patterns
-
-**Exclude unnecessary files**:
+### Exclusions
+Common patterns:
 ```bash
-# Python projects
---exclude "*.pyc" --exclude "__pycache__" --exclude ".venv" \
---exclude "*.egg-info" --exclude ".pytest_cache"
-
-# Node projects
---exclude "node_modules" --exclude "dist" --exclude "build"
-
-# General
---exclude ".DS_Store" --exclude "Thumbs.db" --exclude "*.log" \
---exclude ".git" --exclude "*.swp"
-
-# Data caches
---exclude "data/cache/*" --exclude "data/tmp/*"
+# Python: --exclude "*.pyc" --exclude "__pycache__" --exclude ".venv"
+# Node: --exclude "node_modules" --exclude "dist"
+# General: --exclude ".DS_Store" --exclude "*.log"
 ```
 
-### Verification Workflow
-
-**Always verify critical archives**:
+### Verification
+Always verify after creation and transfer:
 ```bash
-# 1. Create archive
-coldstore freeze ~/project ./archives/ --milestone "Important"
-
-# 2. Verify immediately
-coldstore verify ./archives/project-20251018-143022.tar.gz
-
-# 3. After transfer
-scp ./archives/project.tar.gz server:~/
-ssh server "coldstore verify ~/project.tar.gz"
-
-# 4. Before long-term storage
-coldstore verify ./archives/project.tar.gz > verification-$(date +%Y%m%d).txt
+coldstore freeze ~/project ./archives/ --milestone "Test"
+coldstore verify ./archives/project-*.tar.gz
 ```
 
-### Compression Levels
-
-**Choose appropriate compression**:
+### Compression
 
 | Level | Use Case | Speed | Size |
 |-------|----------|-------|------|
-| 1 | Quick snapshots, large files | Fastest | Largest |
+| 1 | Quick snapshots | Fastest | Largest |
 | 6 (default) | General use | Balanced | Medium |
-| 9 | Long-term storage, uploads | Slowest | Smallest |
-
-```bash
-# Fast snapshot for daily backups
-coldstore freeze ~/project ./daily/ --compression-level 1
-
-# Balanced for most use cases (default)
-coldstore freeze ~/project ./archives/
-
-# Maximum compression for uploads/storage
-coldstore freeze ~/project ./archives/ --compression-level 9
-```
-
-### Storage Strategy
-
-**Maintain multiple copies**:
-```bash
-# 1. Local archive
-coldstore freeze ~/project ./archives/ --milestone "Milestone"
-
-# 2. Institutional repository
-cp -r ./archives/project-20251018-143022/ /institutional-repo/
-
-# 3. Cloud backup
-rclone copy ./archives/project-20251018-143022/ remote:archives/
-
-# 4. External drive
-cp -r ./archives/project-20251018-143022/ /Volumes/Backup/
-
-# Verify each copy
-coldstore verify ./archives/project-20251018-143022.tar.gz
-coldstore verify /institutional-repo/project-20251018-143022.tar.gz
-coldstore verify /Volumes/Backup/project-20251018-143022.tar.gz
-```
+| 9 | Long-term storage | Slowest | Smallest |
 
 ---
 

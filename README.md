@@ -193,7 +193,7 @@ project-20251018-143022/
     "total_size_bytes": 456789012,
     "checksums": {
       "src/main.py": "d4e5f6...",
-      ...
+      "src/utils.py": "e7f8a9..."
     }
   }
 }
