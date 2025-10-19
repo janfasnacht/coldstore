@@ -5,19 +5,37 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI Status](https://github.com/janfasnacht/coldstore/actions/workflows/ci.yml/badge.svg)](https://github.com/janfasnacht/coldstore/actions)
 
-**Project archival with rich metadata and integrity verification**
+**Freeze project snapshots into verified archives for research milestones**
 
-coldstore creates compressed project archives with structured metadata (Git repository state, environment details, event notes, timestamps) and comprehensive integrity verification (archive-level, per-file, and manifest checksums).
+A simple Python tool that creates immutable project archives with comprehensive metadata (Git state, environment details, event notes) and multi-level integrity verification. Perfect for researchers who need to preserve reproducible snapshots for paper submissions, grant deliverables, and compliance documentation.
+
+## What it does
+
+`coldstore` takes a project directory and creates a verified archive bundle with complete provenance:
+
+```bash
+coldstore freeze ~/research/paper ./archives/ --milestone "Nature submission"
+```
+
+Automatically captures:
+- **Git metadata**: Current commit, branch, remotes, dirty status
+- **Environment**: Hostname, username, platform, Python version
+- **Event details**: Milestone name, timestamps, notes, contacts
+- **File integrity**: Per-file SHA256 checksums for all archived files
+- **Archive verification**: Multi-level checksums (archive + files + manifest)
 
 ## Quick Start
 
 ### Installation
 
+#### Recommended (CLI tools):
+
 ```bash
 pipx install coldstore
 ```
 
-Or with pip:
+#### Standard Python installation:
+
 ```bash
 pip install coldstore
 ```
@@ -35,201 +53,135 @@ coldstore verify ./archives/project-20251018-143022.tar.gz
 coldstore inspect ./archives/project-20251018-143022.tar.gz
 ```
 
-### Example: Paper Submission
+### Example Output
 
 ```bash
 coldstore freeze ~/research/paper ./archives/ \
     --milestone "Nature Neuroscience submission" \
     --note "Final version after reviewer comments" \
-    --contact "PI: jane.doe@university.edu" \
-    --exclude "*.pyc" \
-    --exclude "__pycache__"
+    --contact "PI: jane.doe@university.edu"
 ```
 
-Output:
 ```
 ✓ Archive created: ./archives/paper-20251018-143022.tar.gz
-  - Size: 127.3 MB (compressed from 456.2 MB)
-  - Files: 1,234
-  - SHA256: a3d2f1e8...
+  Size: 127.3 MB (compressed from 456.2 MB) | Files: 1,234
 
-✓ Git metadata captured:
-  - Branch: main (commit: abc123...)
-  - Remote: https://github.com/user/paper
-
-✓ Event metadata:
-  - Milestone: Nature Neuroscience submission
-  - Timestamp: 2025-10-18T14:30:22Z
+✓ Git metadata: main @ abc123... (https://github.com/user/paper)
+✓ Event: Nature Neuroscience submission (2025-10-18T14:30:22Z)
+✓ Integrity: SHA256 checksums generated for archive + 1,234 files
 ```
 
 ## Features
 
-### Event-Driven Metadata
-- Milestone/event name and timestamp
-- Multiple notes and contact information
-- Git repository state (branch, commit, remotes, dirty status)
-- Environment details (hostname, user, platform, Python version)
-- Per-file SHA256 checksums
+### Multi-Level Integrity Verification
 
-### Multi-Level Verification
-- Archive-level: SHA256 of entire `.tar.gz`
-- File-level: SHA256 for each archived file
-- Manifest-level: Validates metadata structure
+```
+coldstore verify archive.tar.gz
+
+✓ Archive checksum valid: a3d2f1e8...
+✓ Manifest loaded: 1,234 files
+✓ Per-file checksums: 1,234/1,234 valid
+✓ Archive integrity confirmed
+```
+
+### Complete Metadata Capture
+Automatically captures:
+- **Git state**: Branch, commit, remotes, dirty status
+- **Environment**: Hostname, user, platform, Python version
+- **Event details**: Milestone, timestamps, notes, contacts
+- **File checksums**: SHA256 for every archived file
 
 ### Inspection Without Extraction
-Explore archive metadata, file listings, and statistics without extracting files.
+```bash
+coldstore inspect archive.tar.gz  # View all metadata without extracting
+```
 
-### Dry-Run Mode
-Preview what will be archived before creating files.
+### Flexible Options
+- Dry-run mode for previewing operations
+- Pattern-based file exclusion
+- Configurable compression levels (1-9)
+- Custom archive naming
 
 ## CLI Reference
 
-### `coldstore freeze`
+```
+Usage: coldstore [COMMAND] [OPTIONS]
 
-```bash
-coldstore freeze [OPTIONS] SOURCE DESTINATION
+Commands:
+  freeze    Create archive with metadata
+  verify    Verify archive integrity
+  inspect   View archive metadata without extracting
 
-Options:
+Options (freeze):
   --milestone TEXT         Event name (e.g., "PNAS submission")
   --note TEXT             Description note (repeatable)
   --contact TEXT          Contact information (repeatable)
-  --name TEXT             Custom archive name
-  --compression-level INT Gzip level 1-9 [default: 6]
   --exclude TEXT          Exclude pattern (repeatable)
   --dry-run              Preview without creating files
-  --no-manifest          Skip MANIFEST.json generation
-  --no-filelist          Skip FILELIST.csv.gz generation
-  --no-sha256            Skip per-file checksums
+  --compression-level INT Gzip level 1-9 [default: 6]
+  --name TEXT             Custom archive name
 ```
 
-### `coldstore verify`
+### Common Usage Patterns
 
 ```bash
-coldstore verify ARCHIVE_PATH
-```
+# Basic archival
+coldstore freeze ~/project ./archives/ --milestone "Submission"
+coldstore verify ./archives/project-*.tar.gz
+coldstore inspect ./archives/project-*.tar.gz
 
-Performs three-level verification:
-- Archive checksum (SHA256 of `.tar.gz`)
-- Per-file checksums (from manifest)
-- Manifest structure validation
-
-### `coldstore inspect`
-
-```bash
-coldstore inspect ARCHIVE_PATH
-```
-
-Displays:
-- Event metadata (milestone, notes, contacts, timestamp)
-- Git state (branch, commit, remote, dirty status)
-- Environment (hostname, user, platform)
-- Archive statistics (file count, sizes)
-- File listing with checksums
-
-## Common Patterns
-
-```bash
-# Academic paper with exclusions
+# Academic paper with metadata
 coldstore freeze ~/paper ./archives/ \
     --milestone "Journal submission" \
     --note "Supplementary materials included" \
-    --contact "Corresponding: prof@university.edu" \
+    --contact "PI: prof@university.edu" \
     --exclude "*.pyc" --exclude ".venv"
 
 # Grant deliverable
-coldstore freeze ~/grant-project ./deliverables/ \
-    --milestone "NSF Year 2 Deliverable - Award #1234567" \
-    --contact "PI: pi@university.edu" \
-    --contact "Program Officer: po@nsf.gov"
+coldstore freeze ~/grant ./deliverables/ \
+    --milestone "NSF Award #1234567 - Year 2" \
+    --contact "PI: pi@university.edu"
 
-# Dry-run preview
+# Preview before archiving
 coldstore freeze ~/project ./archives/ --milestone "Test" --dry-run
 
-# Maximum compression for long-term storage
-coldstore freeze ~/project ./archives/ \
-    --compression-level 9 \
-    --milestone "Archive"
+# Maximum compression
+coldstore freeze ~/project ./archives/ --compression-level 9
 ```
 
 ## Archive Structure
 
+Each archive creates a bundle with complete provenance:
+
 ```
 project-20251018-143022/
 ├── project-20251018-143022.tar.gz    # Compressed archive
-├── MANIFEST.json                      # Structured metadata
+├── MANIFEST.json                      # Complete metadata (see below)
 ├── FILELIST.csv.gz                    # File listing + checksums
 └── SHA256SUMS                         # Archive checksum
 ```
 
-### MANIFEST.json
-
-```json
-{
-  "event": {
-    "milestone": "Nature submission",
-    "timestamp": "2025-10-18T14:30:22Z",
-    "notes": ["Final version"],
-    "contacts": ["PI: jane.doe@university.edu"]
-  },
-  "git": {
-    "branch": "main",
-    "commit": "abc123...",
-    "remote": "https://github.com/user/repo",
-    "is_dirty": false
-  },
-  "environment": {
-    "hostname": "workstation",
-    "username": "user",
-    "platform": "Linux-5.15.0-x86_64",
-    "python_version": "3.11.4"
-  },
-  "archive": {
-    "path": "project-20251018-143022.tar.gz",
-    "size_bytes": 133456789,
-    "sha256": "a3d2f1e8..."
-  },
-  "files": {
-    "total_count": 1234,
-    "total_size_bytes": 456789012,
-    "checksums": {
-      "src/main.py": "d4e5f6...",
-      "src/utils.py": "e7f8a9..."
-    }
-  }
-}
-```
+The `MANIFEST.json` includes event details, Git state, environment info, and per-file checksums. See [docs/USAGE.md](docs/USAGE.md) for complete schema.
 
 ## Documentation
 
-- **[docs/USAGE.md](docs/USAGE.md)**: Detailed command reference and troubleshooting
+- **[docs/USAGE.md](docs/USAGE.md)**: Complete command reference, manifest schema, and troubleshooting
 - **[CHANGELOG.md](CHANGELOG.md)**: Version history
-
-## Requirements
-
-- Python 3.9+
-- Git (optional, for repository metadata)
+- **[examples/](examples/)**: Real-world usage examples
 
 ## Development
 
-### Setup
+### Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and contribution guidelines.
+
+### Quick Start
 
 ```bash
 git clone https://github.com/janfasnacht/coldstore.git
 cd coldstore
 poetry install
 poetry run pytest  # 295 tests
-```
-
-### Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md)
-
-### Testing
-
-```bash
-make test       # Run all tests
-make test-cov   # With coverage
-make lint       # Code quality checks
 ```
 
 ## License
