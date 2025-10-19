@@ -81,6 +81,9 @@ test_output/
 *.sha256
 *.README.md
 
+# Development docs (internal use only)
+.dev/
+
 # Temporary files
 tmp/
 temp/

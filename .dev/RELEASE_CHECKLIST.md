@@ -253,8 +253,9 @@ Review:
 - [x] pyproject.toml version is `1.0.0` (not `1.0.0-dev`)
 - [x] LICENSE file exists
 - [x] examples/ directory has content
-- [x] USAGE.md is comprehensive
+- [x] USAGE.md is good
 - [x] .github/workflows/release.yml exists
+- [x] internal Documentation deleted or updated (e.g., a proper roadmap for future versions instead of the current tmeporary markdown files)
 
 #### 5.2 Minor Linting Issues (Optional Fix)
 There are 10 minor linting warnings (line length, unused import). These are non-blocking but can be fixed if desired:

@@ -14,9 +14,10 @@ import hashlib
 import logging
 import tarfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 from .manifest import ColdstoreManifest, read_filelist_csv
 
